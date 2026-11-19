@@ -20,6 +20,15 @@ CODINE_MAX_TOKENS=4096
 
 Run `python main.py`. Type `exit` to quit. Ctrl+C cancels an active turn or exits at the input prompt. `.env` and `.venv` are excluded from Git.
 
+## Commands
+
+- `/model`: fetch the current OpenRouter catalog and open a popup of free text models with tool-calling support. Use Up/Down to move, Space to select, Tab to reach the buttons, and Enter to confirm. Escape or Cancel leaves the model unchanged. Simple consoles use numbered selection instead.
+- `/clear`: clear conversation history while retaining the system instructions. Saved file edits remain on disk.
+- `/help`: display commands.
+- `exit` or `/quit`: quit.
+
+The model picker checks advertised input, output, request, and reasoning prices rather than relying on model names. Free provider quotas still apply, and catalog availability does not guarantee access for your account. It refreshes on every `/model` command. Switching keeps conversation and tool history but removes provider-specific reasoning metadata. Selection lasts for the session; `.env` remains the startup default. Use `/clear` if a smaller model cannot accept the existing history.
+
 ## How it works
 
 `main.py` uses the OpenAI-compatible Python SDK with `base_url="https://openrouter.ai/api/v1"` and your **OpenRouter** key. No OpenAI account or key is needed. There is no separate API URL setting.
@@ -43,10 +52,12 @@ File results are sent to OpenRouter on the next model request. Keep secrets out 
 ## Project files
 
 - `main.py`: configuration, tools, model loop, and terminal input.
+- `model_picker.py`: live free-model discovery and the terminal selection popup.
 - `requirements.txt`: the SDK and `.env` loader.
 - `.env.example`: credential-free configuration template.
 - `.gitignore`: excludes credentials and local generated files.
 - `example.py`: a small greeting script for trying the edit tool.
+- `tests/test_model_picker.py`: model filtering, keyboard selection, cancellation, and session-switch checks. Run with `python -m unittest discover -s tests -v`.
 
 Conversation history disappears on exit and is not automatically trimmed. Connection failures, rate limits, and HTTP errors return you to the prompt; failed turns are removed from history so you can retry. The SDK has a 120-second network timeout and automatic retries are disabled.
 

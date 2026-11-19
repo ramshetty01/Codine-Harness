@@ -8,6 +8,7 @@ import time
 
 from dotenv import load_dotenv
 from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
+from model_picker import fetch_free_models, select_model
 
 PROJECT_DIR = Path(__file__).resolve().parent
 BASE_URL = "https://openrouter.ai/api/v1"
@@ -159,7 +160,7 @@ def execute_tool(call):
         return f"Error executing tool: {error}"
 
 
-def run_turn(client, messages, model, max_tokens):
+def run_turn(client, messages, model, max_tokens, model_parameters=None):
     """Ask the model, execute its tools, and repeat until it answers."""
     for step in range(MAX_STEPS):
         started = time.perf_counter()
@@ -169,7 +170,11 @@ def run_turn(client, messages, model, max_tokens):
             tools=TOOLS,
             max_tokens=max_tokens,
             stream=False,
-            extra_body={"reasoning": {"enabled": True}},
+            extra_body=(
+                {"reasoning": {"enabled": True}}
+                if model_parameters is None or "reasoning" in model_parameters
+                else {}
+            ),
         )
         elapsed = time.perf_counter() - started
         print(f"[Timing] Model request: {elapsed:.2f}s")
@@ -301,6 +306,7 @@ def main():
         return
 
     model = os.environ.get("OPENROUTER_MODEL", "cohere/north-mini-code:free")
+    model_parameters = None
     try:
         max_tokens = int(os.environ.get("CODINE_MAX_TOKENS", "4096"))
         if max_tokens < 1:
@@ -318,7 +324,7 @@ def main():
             "Never claim to have read a file unless a tool returned its contents."
         ),
     }]
-    print(f"Codine — {model} — type 'exit' to quit.")
+    print(f"Codine — {model} — /model to switch, /help for commands.")
 
     # The OpenAI-compatible SDK sends every request to OpenRouter.
     with OpenAI(api_key=api_key, base_url=BASE_URL, timeout=120.0, max_retries=0) as client:
@@ -328,7 +334,7 @@ def main():
             except (EOFError, KeyboardInterrupt):
                 print("\nGoodbye!")
                 break
-            if message.lower() == "exit":
+            if message.lower() in ("exit", "/quit"):
                 break
             if not message:
                 continue
@@ -336,11 +342,48 @@ def main():
                 del messages[1:]
                 print("Codine: Conversation cleared.")
                 continue
+            if message.lower() == "/help":
+                print("Codine Commands:")
+                print("/help - Show this help message")
+                print("/model - Choose a free OpenRouter model with tool support")
+                print("/clear - Clear the conversation history")
+                print("exit or /quit - Exit")
+                continue
+            if message.lower() == "/model":
+                print("Loading free models from OpenRouter...")
+                try:
+                    models = fetch_free_models(client)
+                    if not models:
+                        print("No free tool-capable text models were listed. Current model unchanged.")
+                        continue
+                    selected = select_model(models, model)
+                except (KeyboardInterrupt, EOFError):
+                    print("\nModel selection cancelled.")
+                    continue
+                except APIConnectionError:
+                    print("Could not load models: connection failed or timed out. Current model unchanged.")
+                    continue
+                except APIStatusError as error:
+                    print(f"Could not load models: HTTP {error.status_code}. Current model unchanged.")
+                    continue
+                if selected is None:
+                    print("Model unchanged.")
+                    continue
+                record = next(item for item in models if item["id"] == selected)
+                model_parameters = record.get("supported_parameters") or []
+                if selected != model:
+                    # Reasoning metadata is provider-specific; retain ordinary chat and tool history.
+                    for previous in messages:
+                        previous.pop("reasoning_details", None)
+                        previous.pop("reasoning", None)
+                    model = selected
+                print(f"Codine: Using {model} for this session. Conversation retained.")
+                continue
 
             turn_start = len(messages)
             messages.append({"role": "user", "content": message})
             try:
-                run_turn(client, messages, model, max_tokens)
+                run_turn(client, messages, model, max_tokens, model_parameters)
             except RateLimitError:
                 del messages[turn_start:]
                 print("Codine: Rate limit reached. Wait a moment and retry your message.")
