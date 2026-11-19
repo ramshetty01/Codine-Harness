@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import ast
+import time
 
 from dotenv import load_dotenv
 from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
@@ -159,8 +160,11 @@ def execute_tool(call):
 
 
 def run_turn(client, messages, model, max_tokens):
+    started = time.perf_counter()
+    
     """Ask the model, execute its tools, and repeat until it answers."""
     for step in range(MAX_STEPS):
+        started = time.perf_counter()
         completion = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -169,9 +173,21 @@ def run_turn(client, messages, model, max_tokens):
             stream=False,
             extra_body={"reasoning": {"enabled": True}},
         )
+        elapsed = time.perf_counter() - started
+        print(f"[Timing] Model request: {elapsed:.2f}s")
+
         if not completion.choices:
             print("Codine: OpenRouter returned no answer. Please try again.")
             return
+
+        usage = completion.usage
+
+        if usage:
+            print(
+                f"[Usage] Input: {usage.prompt_tokens} | "
+                f"Output: {usage.completion_tokens} | "
+                f"Total: {usage.total_tokens}"
+            )
 
         choice = completion.choices[0]
         reply = choice.message
@@ -317,6 +333,10 @@ def main():
             if message.lower() == "exit":
                 break
             if not message:
+                continue
+            if message.lower() == "/clear":
+                del messages[1:]
+                print("Codine: Conversation cleared.")
                 continue
 
             turn_start = len(messages)
