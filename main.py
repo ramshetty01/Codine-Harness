@@ -131,6 +131,7 @@ while True:
             stream=False,
         )
 
+        print("[Debug] Finish reason:", completion.choices[0].finish_reason)
         reply = completion.choices[0].message
         messages.append(reply.model_dump(exclude_none=True))
 
@@ -164,4 +165,3 @@ while True:
     else:
         print("Codine: Reached the 5-step limit. Send another message to continue.")
 
-print("[Debug] Finish reason:", completion.choices[0].finish_reason)
