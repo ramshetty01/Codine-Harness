@@ -160,8 +160,6 @@ def execute_tool(call):
 
 
 def run_turn(client, messages, model, max_tokens):
-    started = time.perf_counter()
-    
     """Ask the model, execute its tools, and repeat until it answers."""
     for step in range(MAX_STEPS):
         started = time.perf_counter()
