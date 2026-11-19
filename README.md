@@ -1,6 +1,6 @@
 # Codine-Harness
 
-A small Python terminal coding harness built step by step. OpenRouter is the only provider, using `particle-ai/particle-1:free` by default.
+A small Python terminal coding harness built step by step. OpenRouter is the only provider, using `cohere/north-mini-code:free` by default. Set `OPENROUTER_MODEL` to choose another model, such as `particle-ai/particle-1:free`.
 
 ## Setup
 
@@ -14,7 +14,7 @@ For a new checkout, copy `.env.example` to `.env` and add your OpenRouter API ke
 
 ```dotenv
 OPENROUTER_API_KEY=your-key
-OPENROUTER_MODEL=particle-ai/particle-1:free
+OPENROUTER_MODEL=cohere/north-mini-code:free
 CODINE_MAX_TOKENS=4096
 ```
 
@@ -35,8 +35,9 @@ Provider fields such as `reasoning_details` are preserved in assistant history. 
 
 - `list_project_files`: lists visible files and folders beside `main.py`.
 - `read_project_file`: reads visible, top-level `.py` files only. Rejects symlinks and paths outside that directory, and returns at most 12,000 characters plus a truncation marker.
+- `edit_project_file`: replaces one exact text occurrence in an existing, visible, top-level `.py` file. Shows a diff and saves only when you type `y`. Rejects ambiguous matches, symlinks, and files changed while approval was pending.
 
-File results are sent to OpenRouter on the next model request. Keep secrets out of exposed Python files. This harness has no shell execution or file editing tool.
+File results are sent to OpenRouter on the next model request. Keep secrets out of exposed Python files. This harness has no shell execution tool. Approved edits are saved immediately; cancelling a later model request does not undo them. Use Git to inspect or restore changes. Editing `main.py` changes the next run, not the currently running program.
 
 ## Project files
 
@@ -44,6 +45,7 @@ File results are sent to OpenRouter on the next model request. Keep secrets out 
 - `requirements.txt`: the SDK and `.env` loader.
 - `.env.example`: credential-free configuration template.
 - `.gitignore`: excludes credentials and local generated files.
+- `example.py`: a small greeting script for trying the edit tool.
 
 Conversation history disappears on exit and is not automatically trimmed. Connection failures, rate limits, and HTTP errors return you to the prompt; failed turns are removed from history so you can retry. The SDK has a 120-second network timeout and automatic retries are disabled.
 

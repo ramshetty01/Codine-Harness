@@ -1,5 +1,5 @@
 """Codine: a small OpenRouter terminal harness with local file tools."""
-
+import difflib
 import json
 import os
 from pathlib import Path
@@ -86,6 +86,35 @@ TOOLS = [
                 "required": ["filename"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_project_file",
+            "description": (
+                "Replace one exact text occurrence in an existing top-level "
+                "Python file. Read the file first. Shows a diff and requires "
+                "the user's terminal approval before saving."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "The filename, for example main.py"
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "Exact existing text that occurs once"
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": "Replacement text"
+                    }
+                },
+                "required": ["filename", "old_text", "new_text"]
+            }
+        }
     }
 ]
 
@@ -99,6 +128,8 @@ def execute_tool(call):
             return list_project_files(**arguments)
         if call.function.name == "read_project_file":
             return read_project_file(**arguments)
+        if call.function.name == "edit_project_file":
+            return edit_project_file(**arguments)
         return "Error: unknown tool."
     except (ValueError, TypeError, OSError) as error:
         return f"Error executing tool: {error}"
@@ -144,6 +175,57 @@ def run_turn(client, messages, model, max_tokens):
 
     print(f"Codine: Reached the {MAX_STEPS}-step limit. Send another message to continue.")
 
+def preview_change(filename, old_content, new_content):
+    diff = difflib.unified_diff(
+        old_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f"a/{filename}",
+        tofile=f"b/{filename}",
+    )
+    return "".join(diff) or "No changes."
+
+
+def edit_project_file(filename, old_text, new_text):
+    if not all(isinstance(value, str)
+               for value in (filename, old_text, new_text)):
+        return "Error: all arguments must be strings."
+
+    if Path(filename).name != filename:
+        return "Error: provide a filename without folders."
+
+    if filename.startswith(".") or not filename.endswith(".py"):
+        return "Error: only visible Python files are allowed."
+
+    file_path = PROJECT_DIR / filename
+
+    if file_path.is_symlink() or not file_path.is_file():
+        return "Error: expected an existing file, not a symbolic link."
+
+    original = file_path.read_text(encoding="utf-8")
+
+    if not old_text or original.count(old_text) != 1:
+        return "Error: old_text must match exactly one location."
+
+    updated = original.replace(old_text, new_text, 1)
+
+    if updated == original:
+        return "No changes."
+
+    print(preview_change(filename, original, updated))
+
+    approval = input("Apply this change? [y/N]: ").strip().lower()
+    if approval != "y":
+        return "Edit declined. File unchanged."
+
+    # Avoid overwriting changes made while the preview was displayed.
+    if file_path.is_symlink():
+        return "Error: file became a symbolic link."
+
+    if file_path.read_text(encoding="utf-8") != original:
+        return "Error: file changed since the preview. Request a fresh edit."
+
+    file_path.write_text(updated, encoding="utf-8")
+    return f"Updated {filename}."
 
 def main():
     load_dotenv(PROJECT_DIR / ".env")
@@ -152,7 +234,7 @@ def main():
         print("Set OPENROUTER_API_KEY in .env before starting Codine.")
         return
 
-    model = os.environ.get("OPENROUTER_MODEL", "particle-ai/particle-1:free")
+    model = os.environ.get("OPENROUTER_MODEL", "cohere/north-mini-code:free")
     try:
         max_tokens = int(os.environ.get("CODINE_MAX_TOKENS", "4096"))
         if max_tokens < 1:
