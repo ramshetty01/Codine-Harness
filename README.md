@@ -36,6 +36,7 @@ Provider fields such as `reasoning_details` are preserved in assistant history. 
 - `list_project_files`: lists visible files and folders beside `main.py`.
 - `read_project_file`: reads visible, top-level `.py` files only. Rejects symlinks and paths outside that directory, and returns at most 12,000 characters plus a truncation marker.
 - `edit_project_file`: replaces one exact text occurrence in an existing, visible, top-level `.py` file. Shows a diff and saves only when you type `y`. Rejects ambiguous matches, symlinks, and files changed while approval was pending.
+- `check_python_syntax`: parses a visible, top-level `.py` file without executing it and reports syntax errors with line numbers. A passing check does not verify runtime behavior.
 
 File results are sent to OpenRouter on the next model request. Keep secrets out of exposed Python files. This harness has no shell execution tool. Approved edits are saved immediately; cancelling a later model request does not undo them. Use Git to inspect or restore changes. Editing `main.py` changes the next run, not the currently running program.
 

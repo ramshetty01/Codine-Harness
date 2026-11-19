@@ -3,6 +3,7 @@ import difflib
 import json
 import os
 from pathlib import Path
+import ast
 
 from dotenv import load_dotenv
 from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
@@ -115,6 +116,26 @@ TOOLS = [
                 "required": ["filename", "old_text", "new_text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_python_syntax",
+            "description": (
+                "Check a top-level Python file for syntax errors without "
+                "executing it. Use after editing a Python file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "The filename, for example example.py"
+                    }
+                },
+                "required": ["filename"]
+            }
+        }
     }
 ]
 
@@ -130,6 +151,8 @@ def execute_tool(call):
             return read_project_file(**arguments)
         if call.function.name == "edit_project_file":
             return edit_project_file(**arguments)
+        if call.function.name == "check_python_syntax":
+            return check_python_syntax(**arguments)
         return "Error: unknown tool."
     except (ValueError, TypeError, OSError) as error:
         return f"Error executing tool: {error}"
@@ -226,6 +249,35 @@ def edit_project_file(filename, old_text, new_text):
 
     file_path.write_text(updated, encoding="utf-8")
     return f"Updated {filename}."
+
+def check_python_syntax(filename):
+    if not isinstance(filename, str):
+        return "Error: filename must be a string."
+
+    if Path(filename).name != filename:
+        return "Error: provide a filename without folders."
+
+    if filename.startswith(".") or not filename.endswith(".py"):
+        return "Error: only visible Python files are allowed."
+
+    file_path = PROJECT_DIR / filename
+
+    if file_path.is_symlink() or not file_path.is_file():
+        return "Error: expected an existing Python file."
+
+    try:
+        source = file_path.read_text(encoding="utf-8")
+        ast.parse(source, filename=filename)
+    except SyntaxError as error:
+        return (
+            f"Syntax error in {filename}, "
+            f"line {error.lineno}: {error.msg}"
+        )
+    except (OSError, UnicodeError) as error:
+        return f"Error reading file: {error}"
+
+    return f"Syntax check passed: {filename}"
+
 
 def main():
     load_dotenv(PROJECT_DIR / ".env")
