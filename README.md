@@ -1,6 +1,6 @@
 # Codine-Harness
 
-A small Python terminal coding harness built step by step. OpenRouter is the only provider, using `cohere/north-mini-code:free` by default. Set `OPENROUTER_MODEL` to choose another model, such as `particle-ai/particle-1:free`.
+A Python terminal coding harness built step by step. The active provider is NVIDIA NIM, using `nvidia/nemotron-3.5-super-vl-120b-a12b` by default.
 
 ## Setup
 
@@ -10,59 +10,52 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-For a new checkout, copy `.env.example` to `.env` and add your OpenRouter API key. Keep your existing `.env` when updating an installation.
+For a new checkout, copy `.env.example` to `.env` and add your NVIDIA API key. Keep your existing `.env` when updating.
 
 ```dotenv
-OPENROUTER_API_KEY=your-key
-OPENROUTER_MODEL=cohere/north-mini-code:free
-CODINE_MAX_TOKENS=4096
+NVIDIA_API_KEY=your-key
+NVIDIA_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b
+CODINE_MAX_TOKENS=16384
 ```
 
-Run `python main.py`. Type `exit` to quit. Ctrl+C cancels an active turn or exits at the input prompt. `.env` and `.venv` are excluded from Git.
+Run `python main.py`. The default output cap is 16,384 tokens; an existing `CODINE_MAX_TOKENS` setting takes precedence. This uses the OpenAI-compatible SDK with NVIDIA's endpoint (`https://integrate.api.nvidia.com/v1`), not the OpenAI or OpenRouter service.
+
+If NVIDIA returns 401, check your NVIDIA key. Shell variables take precedence over `.env`; run `unset NVIDIA_API_KEY` before restarting if your shell holds an old key. Credentials are excluded from Git.
 
 ## Commands
 
-- `/model`: fetch the current OpenRouter catalog and open a popup of free text models with tool-calling support. Use Up/Down to move, Space to select, Tab to reach the buttons, and Enter to confirm. Escape or Cancel leaves the model unchanged. Simple consoles use numbered selection instead.
-- `/clear`: clear conversation history while retaining the system instructions. Saved file edits remain on disk.
+- `/model`: show the active NVIDIA model. Configure `NVIDIA_MODEL` in `.env` and restart to change it. Other models may require different thinking settings.
+- `/clear`: clear chat history while retaining system instructions. Saved edits remain on disk.
 - `/help`: display commands.
 - `exit` or `/quit`: quit.
 
-The model picker checks advertised input, output, request, and reasoning prices rather than relying on model names. Free provider quotas still apply, and catalog availability does not guarantee access for your account. It refreshes on every `/model` command. Switching keeps conversation and tool history but removes provider-specific reasoning metadata. Selection lasts for the session; `.env` remains the startup default. Use `/clear` if a smaller model cannot accept the existing history.
+Ctrl+C cancels an active turn or exits at the input prompt. The OpenRouter popup module is retained as an earlier learning example, but is not used by this NVIDIA-only entry point.
 
-## How it works
+## Model loop
 
-`main.py` uses the OpenAI-compatible Python SDK with `base_url="https://openrouter.ai/api/v1"` and your **OpenRouter** key. No OpenAI account or key is needed. There is no separate API URL setting.
+Your message is appended to history and sent to NVIDIA with the tool definitions. Reasoning and answer text stream to the terminal with separate labels. The harness collects fragmented tool names and JSON arguments before executing anything. Multiple tool requests are supported; local actions execute sequentially so edit approvals remain clear.
 
-1. Your message is appended to in-memory conversation history.
-2. OpenRouter returns an answer or structured tool requests.
-3. Python runs the requested tools and appends their results.
-4. The model receives the updated history and continues, up to five API calls per turn.
+The request follows the NVIDIA sample: temperature 1, top_p 0.95, seed 42, parallel tool calls enabled, and `chat_template_kwargs.enable_thinking=true`. Streamed reasoning is preserved as `reasoning_content` in assistant history. Usage is printed when the provider reports it, along with total request time.
 
-Provider fields such as `reasoning_details` are preserved in assistant history. Reasoning is enabled, and the output budget defaults to 4,096 tokens. Replies are non-streaming. Model availability, free quotas, and latency depend on OpenRouter and the upstream provider.
+The loop permits up to five model calls per user message. Incomplete or truncated tool requests are rejected. Connection failures, quota errors, and interrupted streams return to the prompt; failed turns are removed from history. Already approved file edits are not undone. The client has a 120-second network timeout and automatic retries are disabled.
 
 ## Tools
 
-- `list_project_files`: lists visible files and folders beside `main.py`.
-- `read_project_file`: reads visible, top-level `.py` files only. Rejects symlinks and paths outside that directory, and returns at most 12,000 characters plus a truncation marker.
-- `edit_project_file`: replaces one exact text occurrence in an existing, visible, top-level `.py` file. Shows a diff and saves only when you type `y`. Rejects ambiguous matches, symlinks, and files changed while approval was pending.
-- `check_python_syntax`: parses a visible, top-level `.py` file without executing it and reports syntax errors with line numbers. A passing check does not verify runtime behavior.
+- `list_project_files`: list visible names beside `main.py`.
+- `read_project_file`: read a visible, top-level `.py` file, up to 12,000 characters. Rejects symlinks and paths outside that directory.
+- `edit_project_file`: replace one exact text occurrence in an existing, visible, top-level Python file. Shows a diff and saves only when you type `y`. Rejects ambiguous matches and files changed while awaiting approval.
+- `check_python_syntax`: parse a visible, top-level Python file without executing it and report syntax errors with line numbers.
 
-File results are sent to OpenRouter on the next model request. Keep secrets out of exposed Python files. This harness has no shell execution tool. Approved edits are saved immediately; cancelling a later model request does not undo them. Use Git to inspect or restore changes. Editing `main.py` changes the next run, not the currently running program.
+Tool results go to NVIDIA on the next model request. Keep secrets out of exposed Python files. There is no shell execution tool. Syntax checking does not prove runtime correctness. Editing `main.py` affects the next run, not the current process.
 
-## Project files
+## Checks and learning history
 
-- `main.py`: configuration, tools, model loop, and terminal input.
-- `model_picker.py`: live free-model discovery and the terminal selection popup.
-- `requirements.txt`: the SDK and `.env` loader.
-- `.env.example`: credential-free configuration template.
-- `.gitignore`: excludes credentials and local generated files.
-- `example.py`: a small greeting script for trying the edit tool.
-- `tests/test_model_picker.py`: model filtering, keyboard selection, cancellation, and session-switch checks. Run with `python -m unittest discover -s tests -v`.
+```bash
+python -m unittest discover -s tests -v
+```
 
-Conversation history disappears on exit and is not automatically trimmed. Connection failures, rate limits, and HTTP errors return you to the prompt; failed turns are removed from history so you can retry. The SDK has a 120-second network timeout and automatic retries are disabled.
+Tests cover fragmented streaming tool calls, reasoning and usage accumulation, interrupted streams, tool result history, and the earlier model-picker UI.
 
-## Learning history
+Earlier commits cover NVIDIA experiments, Groq chat, OpenRouter, conversation history, file tools, approval, syntax checks, and the free-model picker. Each milestone is committed separately. The current entry point targets NVIDIA; `model_picker.py` remains a standalone OpenRouter learning example.
 
-The first six commits organize earlier lessons: setup, NVIDIA requests, Groq streaming, conversation history, file tools, and debug output. Those initial milestones were reconstructed together. The old provider experiments remain available in Git history; the current folder contains only the OpenRouter implementation. Each new milestone is committed separately.
-
-This is a learning project, not a production coding agent.
+Conversation history disappears on exit and is not automatically trimmed. This is a learning project, not a production coding agent. The terminal currently accepts text prompts; the sample image question was not hardcoded into every conversation.

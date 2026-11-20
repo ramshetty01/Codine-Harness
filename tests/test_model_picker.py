@@ -58,25 +58,12 @@ class ModelPickerTests(unittest.TestCase):
         with patch('model_picker.sys.stdin.isatty', return_value=False), patch('builtins.input', side_effect=['99', '2']), redirect_stdout(io.StringIO()):
             self.assertEqual(select_model([record('a'), record('b')], 'a'), 'b')
 
-    def test_switch_changes_next_request_and_preserves_chat(self):
-        turns = []
-
-        def turn(client, messages, model, max_tokens, parameters):
-            turns.append((model, copy.deepcopy(messages), parameters))
-            messages.append({'role': 'assistant', 'content': 'Hello', 'reasoning_details': [{'text': 'provider-specific'}]})
-
-        with patch.object(main, 'load_dotenv'), patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test', 'OPENROUTER_MODEL': 'a'}), patch.object(main, 'OpenAI', return_value=MagicMock()), patch.object(main, 'fetch_free_models', return_value=[record('b')]), patch.object(main, 'select_model', return_value='b'), patch.object(main, 'run_turn', side_effect=turn), patch('builtins.input', side_effect=['Hello', '/model', 'Again', '/quit']), redirect_stdout(io.StringIO()):
+    def test_nvidia_model_command_stays_local(self):
+        with patch.object(main, 'load_dotenv'), patch.dict(os.environ, {'NVIDIA_API_KEY': 'test', 'NVIDIA_MODEL': main.DEFAULT_MODEL}), patch.object(main, 'OpenAI', return_value=MagicMock()) as client, patch('builtins.input', side_effect=['/model', 'exit']), redirect_stdout(io.StringIO()) as output:
             main.main()
-        self.assertEqual([turn[0] for turn in turns], ['a', 'b'])
-        self.assertEqual(turns[1][1][2]['content'], 'Hello')
-        self.assertNotIn('reasoning_details', turns[1][1][2])
-        self.assertEqual(turns[1][2], ['tools'])
-
-    def test_empty_catalog_does_not_open_picker(self):
-        with patch.object(main, 'load_dotenv'), patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test'}), patch.object(main, 'OpenAI', return_value=MagicMock()), patch.object(main, 'fetch_free_models', return_value=[]), patch.object(main, 'select_model') as picker, patch('builtins.input', side_effect=['/model', 'exit']), redirect_stdout(io.StringIO()) as output:
-            main.main()
-        picker.assert_not_called()
-        self.assertIn('Current model unchanged', output.getvalue())
+        self.assertIn(main.DEFAULT_MODEL, output.getvalue())
+        self.assertEqual(client.call_args.kwargs['base_url'], 'https://integrate.api.nvidia.com/v1')
+        client.return_value.__enter__.return_value.chat.completions.create.assert_not_called()
 
 
 if __name__ == '__main__':

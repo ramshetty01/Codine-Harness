@@ -1,4 +1,4 @@
-"""Codine: a small OpenRouter terminal harness with local file tools."""
+"""Codine: a small NVIDIA terminal harness with local file tools."""
 import difflib
 import json
 import os
@@ -7,11 +7,12 @@ import ast
 import time
 
 from dotenv import load_dotenv
-from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
-from model_picker import fetch_free_models, select_model
+from openai import APIConnectionError, APIError, APIStatusError, AuthenticationError, OpenAI, RateLimitError
+from openai.types.chat import ChatCompletionMessage
 
 PROJECT_DIR = Path(__file__).resolve().parent
-BASE_URL = "https://openrouter.ai/api/v1"
+BASE_URL = "https://integrate.api.nvidia.com/v1"
+DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 MAX_STEPS = 5
 
 def list_project_files():
@@ -160,61 +161,111 @@ def execute_tool(call):
         return f"Error executing tool: {error}"
 
 
-def run_turn(client, messages, model, max_tokens, model_parameters=None):
-    """Ask the model, execute its tools, and repeat until it answers."""
+def collect_stream(stream):
+    """Print text as it arrives and assemble fragmented tool requests."""
+    content = ""
+    reasoning = ""
+    calls = {}
+    finish_reason = None
+    usage = None
+    section = None
+    try:
+        for chunk in stream:
+            if chunk.usage:
+                usage = chunk.usage
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            thinking = getattr(delta, "reasoning_content", None)
+            if thinking:
+                if section != "reasoning":
+                    print("\n[Reasoning] ", end="", flush=True)
+                    section = "reasoning"
+                reasoning += thinking
+                print(thinking, end="", flush=True)
+            if delta.content:
+                if section != "answer":
+                    print("\nCodine: ", end="", flush=True)
+                    section = "answer"
+                content += delta.content
+                print(delta.content, end="", flush=True)
+            for fragment in delta.tool_calls or []:
+                call = calls.setdefault(fragment.index, {
+                    "id": "", "type": "function",
+                    "function": {"name": "", "arguments": ""},
+                })
+                if fragment.id:
+                    call["id"] += fragment.id
+                if fragment.function:
+                    call["function"]["name"] += fragment.function.name or ""
+                    call["function"]["arguments"] += fragment.function.arguments or ""
+    finally:
+        if section:
+            print()
+
+    if finish_reason is None:
+        raise RuntimeError("NVIDIA stream ended before a completion marker. Retry your message.")
+    if calls and finish_reason != "tool_calls":
+        raise RuntimeError("Tool request was incomplete or truncated; no tools were executed.")
+    reply = {"role": "assistant", "content": content or None}
+    if reasoning:
+        reply["reasoning_content"] = reasoning
+    if calls:
+        tool_calls = [calls[index] for index in sorted(calls)]
+        # Validate the complete batch before any action is executed.
+        for call in tool_calls:
+            if not call["id"] or not call["function"]["name"]:
+                raise RuntimeError("NVIDIA returned an incomplete tool request.")
+            try:
+                arguments = json.loads(call["function"]["arguments"])
+            except ValueError as error:
+                raise RuntimeError("NVIDIA returned invalid tool arguments; no tools were executed.") from error
+            if not isinstance(arguments, dict):
+                raise RuntimeError("Tool arguments must be a JSON object.")
+        reply["tool_calls"] = tool_calls
+    elif finish_reason == "tool_calls":
+        raise RuntimeError("NVIDIA reported tool calls without providing a tool request.")
+    return reply, finish_reason, usage
+
+
+def run_turn(client, messages, model, max_tokens):
+    """Stream NVIDIA responses, execute complete tool calls, and repeat."""
     for step in range(MAX_STEPS):
         started = time.perf_counter()
-        completion = client.chat.completions.create(
+        with client.chat.completions.create(
             model=model,
             messages=messages,
             tools=TOOLS,
+            temperature=1,
+            top_p=0.95,
             max_tokens=max_tokens,
-            stream=False,
-            extra_body=(
-                {"reasoning": {"enabled": True}}
-                if model_parameters is None or "reasoning" in model_parameters
-                else {}
-            ),
-        )
-        elapsed = time.perf_counter() - started
-        print(f"[Timing] Model request: {elapsed:.2f}s")
-
-        if not completion.choices:
-            print("Codine: OpenRouter returned no answer. Please try again.")
-            return
-
-        usage = completion.usage
-
+            parallel_tool_calls=True,
+            seed=42,
+            extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+            stream=True,
+            stream_options={"include_usage": True},
+        ) as stream:
+            reply, finish_reason, usage = collect_stream(stream)
+        print(f"[Timing] Model request: {time.perf_counter() - started:.2f}s")
         if usage:
-            print(
-                f"[Usage] Input: {usage.prompt_tokens} | "
-                f"Output: {usage.completion_tokens} | "
-                f"Total: {usage.total_tokens}"
-            )
-
-        choice = completion.choices[0]
-        reply = choice.message
-        print("[Debug] Finish reason:", choice.finish_reason)
-        if choice.finish_reason == "length" and reply.tool_calls:
-            print("Codine: Tool request was truncated; it was not executed.")
-            return
-
-        # Preserve provider extras such as reasoning_details between requests.
-        messages.append(reply.model_dump(exclude_none=True))
-        if not reply.tool_calls:
-            print("Codine:", reply.content or "[No text returned]")
-            if choice.finish_reason == "length":
+            print(f"[Usage] Input: {usage.prompt_tokens} | Output: {usage.completion_tokens} | Total: {usage.total_tokens}")
+        print("[Debug] Finish reason:", finish_reason)
+        messages.append(reply)
+        if not reply.get("tool_calls"):
+            if not reply.get("content"):
+                print("Codine: [No answer text returned]")
+            if finish_reason == "length":
                 print("[Response reached the token limit. Ask for a shorter answer.]")
             return
-
-        for call in reply.tool_calls:
+        for call in ChatCompletionMessage.model_validate(reply).tool_calls:
             print(f"[Tool requested] {call.function.name}")
             messages.append({
-                "role": "tool",
-                "tool_call_id": call.id,
+                "role": "tool", "tool_call_id": call.id,
                 "content": execute_tool(call),
             })
-
     print(f"Codine: Reached the {MAX_STEPS}-step limit. Send another message to continue.")
 
 def preview_change(filename, old_content, new_content):
@@ -300,15 +351,14 @@ def check_python_syntax(filename):
 
 def main():
     load_dotenv(PROJECT_DIR / ".env")
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
-        print("Set OPENROUTER_API_KEY in .env before starting Codine.")
+        print("Set NVIDIA_API_KEY in .env before starting Codine.")
         return
 
-    model = os.environ.get("OPENROUTER_MODEL", "cohere/north-mini-code:free")
-    model_parameters = None
+    model = os.environ.get("NVIDIA_MODEL", DEFAULT_MODEL)
     try:
-        max_tokens = int(os.environ.get("CODINE_MAX_TOKENS", "4096"))
+        max_tokens = int(os.environ.get("CODINE_MAX_TOKENS", "16384"))
         if max_tokens < 1:
             raise ValueError
     except ValueError:
@@ -324,9 +374,9 @@ def main():
             "Never claim to have read a file unless a tool returned its contents."
         ),
     }]
-    print(f"Codine — {model} — /model to switch, /help for commands.")
+    print(f"Codine — {model} — /model for model info, /help for commands.")
 
-    # The OpenAI-compatible SDK sends every request to OpenRouter.
+    # The OpenAI-compatible SDK sends every request to NVIDIA.
     with OpenAI(api_key=api_key, base_url=BASE_URL, timeout=120.0, max_retries=0) as client:
         while True:
             try:
@@ -345,45 +395,22 @@ def main():
             if message.lower() == "/help":
                 print("Codine Commands:")
                 print("/help - Show this help message")
-                print("/model - Choose a free OpenRouter model with tool support")
+                print("/model - Show the active NVIDIA model")
                 print("/clear - Clear the conversation history")
                 print("exit or /quit - Exit")
                 continue
             if message.lower() == "/model":
-                print("Loading free models from OpenRouter...")
-                try:
-                    models = fetch_free_models(client)
-                    if not models:
-                        print("No free tool-capable text models were listed. Current model unchanged.")
-                        continue
-                    selected = select_model(models, model)
-                except (KeyboardInterrupt, EOFError):
-                    print("\nModel selection cancelled.")
-                    continue
-                except APIConnectionError:
-                    print("Could not load models: connection failed or timed out. Current model unchanged.")
-                    continue
-                except APIStatusError as error:
-                    print(f"Could not load models: HTTP {error.status_code}. Current model unchanged.")
-                    continue
-                if selected is None:
-                    print("Model unchanged.")
-                    continue
-                record = next(item for item in models if item["id"] == selected)
-                model_parameters = record.get("supported_parameters") or []
-                if selected != model:
-                    # Reasoning metadata is provider-specific; retain ordinary chat and tool history.
-                    for previous in messages:
-                        previous.pop("reasoning_details", None)
-                        previous.pop("reasoning", None)
-                    model = selected
-                print(f"Codine: Using {model} for this session. Conversation retained.")
+                print(f"NVIDIA model: {model}")
+                print("Set NVIDIA_MODEL in .env and restart to change it. Other models may need different thinking settings.")
                 continue
 
             turn_start = len(messages)
             messages.append({"role": "user", "content": message})
             try:
-                run_turn(client, messages, model, max_tokens, model_parameters)
+                run_turn(client, messages, model, max_tokens)
+            except AuthenticationError:
+                del messages[turn_start:]
+                print("Codine: NVIDIA rejected NVIDIA_API_KEY (401). Check the key in .env; unset NVIDIA_API_KEY in your shell if it overrides that file.")
             except RateLimitError:
                 del messages[turn_start:]
                 print("Codine: Rate limit reached. Wait a moment and retry your message.")
@@ -392,7 +419,10 @@ def main():
                 print("Codine: Connection failed or timed out. Please retry your message.")
             except APIStatusError as error:
                 del messages[turn_start:]
-                print(f"Codine: OpenRouter returned HTTP {error.status_code}. Check your key, model access, and quota.")
+                print(f"Codine: NVIDIA returned HTTP {error.status_code}. Check your key, model access, and quota.")
+            except (APIError, RuntimeError) as error:
+                del messages[turn_start:]
+                print("Codine: Response failed. Retry your message." if isinstance(error, APIError) else f"Codine: {error}")
             except KeyboardInterrupt:
                 # Drop the interrupted turn so unfinished tool calls cannot enter history.
                 del messages[turn_start:]
