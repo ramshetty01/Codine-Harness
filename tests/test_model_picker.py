@@ -59,11 +59,12 @@ class ModelPickerTests(unittest.TestCase):
             self.assertEqual(select_model([record('a'), record('b')], 'a'), 'b')
 
     def test_nvidia_model_command_stays_local(self):
-        with patch.object(main, 'load_dotenv'), patch.dict(os.environ, {'NVIDIA_API_KEY': 'test', 'NVIDIA_MODEL': main.DEFAULT_MODEL}), patch.object(main, 'OpenAI', return_value=MagicMock()) as client, patch('builtins.input', side_effect=['/model', 'exit']), redirect_stdout(io.StringIO()) as output:
-            main.main()
-        self.assertIn(main.DEFAULT_MODEL, output.getvalue())
-        self.assertEqual(client.call_args.kwargs['base_url'], 'https://integrate.api.nvidia.com/v1')
-        client.return_value.__enter__.return_value.chat.completions.create.assert_not_called()
+        import tempfile
+        from codine.cli import main as cli_main
+        with tempfile.TemporaryDirectory() as project, patch('codine.cli.NvidiaProvider') as provider, redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(cli_main(['--project', project, '--prompt', '/model']), 0)
+        provider.return_value.complete.assert_not_called()
+        self.assertIn('NVIDIA:', output.getvalue())
 
 
 if __name__ == '__main__':
