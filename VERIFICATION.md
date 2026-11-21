@@ -91,3 +91,9 @@ Tests are in `tests/test_harness.py`, `tests/test_terminal_integration.py`, `tes
 - Syntax/import checks catch only some broken updates. Keep working Git checkpoints and use `RECOVERY.md` for runtime regressions.
 - The crash window between an external side effect and recording its result remains real. Recovery reports unknown outcomes instead of claiming exactly-once execution.
 - Credentials are masked when they match configured secret strings. This does not discover every secret a user might paste or a project might contain.
+
+## Terminal workbench update — 22 November 2026
+
+The interface now has a responsive welcome card, teal/amber styling, a slash-command completion menu, colored diffs, explicit review cards, and readable tool summaries. `/details` retains access to the complete last result. Piped output is uncolored, and `NO_COLOR=1` selects monochrome rendering.
+
+The expanded suite passed **47 tests** (7.453 seconds). New coverage verifies menu completion in an actual 52-column pseudo-terminal, Unicode card wrapping, visible command failures, secret redaction, and full-result retention behind shortened previews. Existing real-terminal paste, approval, and process-restart tests also passed. The model adapter and execution policy were unchanged; no additional paid API call was needed for this UI update.

@@ -1,23 +1,83 @@
-"""Paste-aware terminal input and a small, dependency-light event renderer."""
+"""A scrollback-friendly workbench UI with paste-aware input and safe output."""
+import json
+import os
 import re
+import shutil
 import sys
-from prompt_toolkit import PromptSession
+import time
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
+
+COMMANDS = {
+    '/help': 'Explore commands', '/paste': 'Write a multiline task',
+    '/session': 'Current session details', '/sessions': 'Browse saved sessions',
+    '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
+    '/save': 'Save your session', '/clear': 'Clear active context; keep archive',
+    '/compact': 'Keep the latest three turns in context',
+    '/restart': 'Check code, restart, and resume', '/model': 'Show or change NVIDIA model',
+    '/thinking': 'Show or hide reasoning', '/details': 'Full output of the last tool',
+    '/permissions': 'Choose ask or auto-edit', '/quit': 'Save and exit',
+}
+TOOL_LABELS = {
+    'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
+    'write_file': 'Create file', 'edit_file': 'Edit file', 'check_python': 'Check Python',
+    'run_command': 'Run command', 'request_restart': 'Prepare restart',
+}
+STYLE = Style.from_dict({
+    'brand': '#64d8cb bold', 'border': '#627480', 'muted': '#9aaab5',
+    'text': '#e4eaf0', 'accent': '#eebf77 bold', 'success': '#83d49c',
+    'error': '#ff8f91', 'added': '#83d49c', 'removed': '#ff8f91',
+    'prompt': '#64d8cb bold',
+    'bottom-toolbar': 'bg:#1b2932 #c3d1dc',
+    'completion-menu.completion': 'bg:#1b2932 #dce6ee',
+    'completion-menu.completion.current': 'bg:#36505b #ffffff bold',
+    'completion-menu.meta.completion': 'bg:#1b2932 #9aaab5',
+    'completion-menu.meta.completion.current': 'bg:#36505b #ffffff',
+})
 
 
 def safe_text(text):
-    # Model output is data; do not let ANSI escapes alter the terminal.
+    # Never interpret terminal controls supplied by a file, tool, or model.
     return re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', str(text)).replace('\r', '')
+
+
+def clip(text, width):
+    text = str(text)
+    if get_cwidth(text) <= width:
+        return text
+    result = ''
+    for char in text:
+        if get_cwidth(result + char) > max(0, width - 1):
+            break
+        result += char
+    return result + '…'
+
+
+class CommandCompleter(Completer):
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith('/') or any(char.isspace() for char in text):
+            return
+        for command, hint in COMMANDS.items():
+            if command.startswith(text.lower()):
+                yield Completion(command, start_position=-len(text), display_meta=hint)
 
 
 class Terminal:
     def __init__(self, redactor, interactive=None):
         self.redactor = redactor
         self.interactive = sys.stdin.isatty() and sys.stdout.isatty() if interactive is None else interactive
-        self.state = lambda: 'Codine'
+        self.color = self.interactive and 'NO_COLOR' not in os.environ and os.getenv('TERM') != 'dumb'
+        self.state = lambda: {}
         self.section = None
         self.buffer = ''
+        self.last_result = None
+        self.tool_started = None
         self.editor = None
         if self.interactive:
             bindings = KeyBindings()
@@ -28,43 +88,172 @@ class Terminal:
             def newline(event):
                 event.current_buffer.insert_text('\n')
             self.editor = PromptSession(multiline=True, key_bindings=bindings,
-                prompt_continuation='  · ', bottom_toolbar=lambda: safe_text(self.state()),
-                style=Style.from_dict({'bottom-toolbar': 'bg:#253444 #d5e5ef'}),
-                enable_history_search=True)
+                prompt_continuation=FormattedText([('class:border', '    · ')]),
+                bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
+                color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
+                completer=CommandCompleter(), complete_while_typing=True,
+                reserve_space_for_menu=6, enable_history_search=False)
+
+    @property
+    def width(self):
+        return max(20, min(88, shutil.get_terminal_size((80, 24)).columns - 2))
+
+    def clean(self, text):
+        return safe_text(self.redactor.text(str(text)))
+
+    def line(self, text='', tone='text'):
+        text = self.clean(text)
+        if self.color:
+            print_formatted_text(FormattedText([(f'class:{tone}', text)]), style=STYLE)
+        else:
+            print(text, flush=True)
 
     def write(self, text=''):
-        print(safe_text(self.redactor.text(str(text))), flush=True)
+        text = self.clean(text)
+        # Diffs keep every line visible before approval, with familiar +/- colors.
+        if text.startswith('--- a/'):
+            for line in text.splitlines():
+                tone = 'muted' if line.startswith(('---', '+++', '@@')) else 'added' if line.startswith('+') else 'removed' if line.startswith('-') else 'text'
+                self.line(line, tone)
+        else:
+            self.line(text, 'error' if text.startswith('Error:') else 'text')
+
+    def rule(self, label, tone='border'):
+        title = clip('─ ' + self.clean(label) + ' ', self.width - 2)
+        self.line('╭' + title + '─' * max(0, self.width - get_cwidth(title) - 2) + '╮', tone)
+
+    def heading(self, label, tone='brand'):
+        title = clip('── ' + self.clean(label) + ' ', self.width)
+        self.line(title + '─' * max(0, self.width - get_cwidth(title)), tone)
+
+    def panel(self, title, rows, tone='brand'):
+        self.rule(title, tone)
+        available = self.width - 4
+        for row in rows:
+            # Wrap rather than hide project paths or approval details.
+            rest = self.clean(row).expandtabs(4)
+            if not rest:
+                self.line('│' + ' ' * (self.width - 2) + '│', 'border')
+            while rest:
+                line = ''
+                for char in rest:
+                    if get_cwidth(line + char) > available:
+                        break
+                    line += char
+                rest = rest[len(line):]
+                self.line('│ ' + line + ' ' * (available - get_cwidth(line)) + ' │', 'text')
+        self.line('╰' + '─' * (self.width - 2) + '╯', 'border')
+
+    def welcome(self, project, session, model):
+        self.line()
+        self.panel('◈ C O D I N E', [
+            'Your terminal coding workbench', '',
+            f'Project: {project}', f'Model: {model}', f'Session: {session}', '',
+            '01  Describe what you want to build.',
+            '02  Review the proposed changes.',
+            '03  Approve, test, and keep building.',
+        ])
+        self.line('  /help  commands    /sessions  resume work    /quit  exit', 'muted')
+        self.line('  Enter  send        Alt+Enter  new line        /  command menu', 'muted')
+
+    def toolbar(self):
+        state = self.state()
+        if not isinstance(state, dict):
+            return self.clean(state)
+        mode = 'review edits' if state.get('mode') == 'ask' else 'auto-edit'
+        text = f' ● READY  ·  {state.get("project", "")}  ·  {mode}  ·  {state.get("tokens", 0):,} tokens'
+        return self.clean(clip(text, self.width))
 
     def prompt(self):
         if not self.editor:
             raise EOFError()
-        return self.editor.prompt('\nYou › ')
+        self.line()
+        self.line('─' * self.width, 'border')
+        return self.editor.prompt(FormattedText([('class:prompt', 'You › ')]))
 
     def paste(self):
-        self.write('Paste text; put /end on a line by itself to send. Ctrl+C cancels.')
+        self.panel('MULTILINE INPUT', ['Paste your task. Put /end on its own line to send.', 'Ctrl+C cancels this input.'], 'accent')
         lines = []
         while True:
-            line = input('… ')
+            line = input('  · ')
             if line == '/end':
                 return '\n'.join(lines)
             lines.append(line)
 
     def approve(self, description):
         self.emit('end_stream', '')
-        self.write(description)
+        self.line()
+        self.panel('YOUR REVIEW', str(description).splitlines() + ['', 'yes = approve    anything else = decline'], 'accent')
         if not self.interactive:
-            self.write('[Declined: approval requires an interactive terminal.]')
+            self.line('  ○ Declined — approval requires an interactive terminal.', 'accent')
             return False
         try:
-            # No persistent history and no reuse of the model prompt buffer.
-            answer = PromptSession().prompt('Approve? Type yes: ')
-            return answer.strip().lower() == 'yes'
+            answer = PromptSession(style=STYLE if self.color else Style.from_dict({}), color_depth=None if self.color else ColorDepth.DEPTH_1_BIT).prompt('Approve? Type yes: ')
+            approved = answer.strip().lower() == 'yes'
+            self.line('  ✓ Approved' if approved else '  ○ Declined', 'success' if approved else 'accent')
+            return approved
         except (KeyboardInterrupt, EOFError):
-            self.write('Declined.')
+            self.line('  ○ Declined.', 'accent')
             return False
 
+    def details(self):
+        if self.last_result is None:
+            self.line('No tool output yet. Ask Codine to inspect your project first.', 'muted')
+            return
+        self.heading('FULL TOOL OUTPUT')
+        self.write(self.last_result)
+
+    def _result(self, text):
+        self.last_result = self.clean(text)
+        elapsed = f' · {time.monotonic() - self.tool_started:.1f}s' if self.tool_started else ''
+        self.tool_started = None
+        try:
+            value = json.loads(self.last_result)
+        except (ValueError, TypeError):
+            value = None
+        lines = []
+        title, tone, symbol = 'Completed', 'success', '✓'
+        if isinstance(value, dict):
+            status = value.get('status')
+            if value.get('error') or value.get('ok') is False or status in ('timeout', 'output_limit') or value.get('exit_code') not in (None, 0):
+                title, tone, symbol = 'Needs attention', 'error', '!'
+            elif status in ('declined', 'skipped'):
+                title, tone, symbol = status.capitalize(), 'accent', '○'
+            elif status:
+                title = status.replace('_', ' ').capitalize()
+            elif value.get('ok'):
+                title = 'Syntax valid'
+            if 'path' in value:
+                title += ' · ' + str(value['path'])
+            if 'files' in value and isinstance(value['files'], list):
+                title = f'{len(value["files"])} files found'
+                lines = [str(item) for item in value['files']]
+            elif 'matches' in value and isinstance(value['matches'], list):
+                title = f'{len(value["matches"])} matches found'
+                lines = [f'{item.get("path")}:{item.get("line")}  {item.get("text")}' for item in value['matches'] if isinstance(item, dict)]
+            elif 'content' in value:
+                lines = str(value['content']).splitlines()
+            if 'stdout' in value or 'stderr' in value:
+                title += f' · exit {value.get("exit_code")}'
+                if value.get('stdout'):
+                    lines += ['stdout:'] + str(value['stdout']).splitlines()
+                if value.get('stderr'):
+                    lines += ['stderr:'] + str(value['stderr']).splitlines()
+            for key in ('error', 'message', 'reason'):
+                if value.get(key):
+                    lines += str(value[key]).splitlines()
+            if value.get('next_page'):
+                lines.append('More file content is available on the next page.')
+            if value.get('truncated') or value.get('output_truncated'):
+                lines.append('Tool output was limited; narrow the request for more.')
+        else:
+            lines = self.last_result.splitlines()
+        self.line(f'  {symbol} {title}{elapsed}', tone)
+        for line in lines[:8]:
+            self.line('    ' + clip(line, self.width - 4), 'muted')
+        self.line('    /details shows the full returned output', 'muted')
+
     def _flush(self, final=False):
-        # Hold enough trailing characters to redact a secret split across chunks.
         keep = max(map(len, self.redactor.secrets), default=1) - 1
         cut = len(self.buffer) if final else max(0, len(self.buffer) - keep)
         for secret in self.redactor.secrets:
@@ -74,14 +263,15 @@ class Terminal:
                     cut = start
                 start = self.buffer.find(secret, start + 1)
         if cut:
-            print(safe_text(self.redactor.text(self.buffer[:cut])), end='', flush=True)
+            print(self.clean(self.buffer[:cut]), end='', flush=True)
             self.buffer = self.buffer[cut:]
 
     def emit(self, kind, text):
         if kind in ('text', 'reasoning'):
             if self.section != kind:
                 self.emit('end_stream', '')
-                self.write('\nCodine:' if kind == 'text' else '\nThinking:')
+                self.line()
+                self.heading('CODINE' if kind == 'text' else 'THINKING', 'brand' if kind == 'text' else 'muted')
                 self.section = kind
             self.buffer += text
             self._flush()
@@ -93,8 +283,9 @@ class Terminal:
         if kind == 'end_stream':
             return
         if kind == 'tool':
-            self.write(f'  → {text}')
+            self.tool_started = time.monotonic()
+            self.line(f'\n  ◇ {TOOL_LABELS.get(text, text)}  ({text})', 'accent')
         elif kind == 'result':
-            self.write('    ' + text[:1600] + (' … [display shortened; full result saved]' if len(text) > 1600 else ''))
+            self._result(text)
         else:
-            self.write(f'[{text}]')
+            self.line(f'  · {text}', 'muted')

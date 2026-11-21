@@ -24,6 +24,7 @@ HELP = '''Commands
   /compact              Keep the latest 3 whole turns in active context
   /restart              Save, check, restart, and resume with updated code
   /model [ID]           Show/change NVIDIA model; compatibility varies
+  /details              Full output of the last tool
   /thinking             Toggle display of reasoning (generation unchanged)
   /permissions MODE     ask or auto-edit; commands/core edits still ask
   exit, /quit           Save and quit
@@ -69,6 +70,8 @@ def command(text, agent, workspace, ui):
     session = agent.session
     if name == '/help':
         ui.write(HELP)
+    elif name == '/details':
+        ui.details()
     elif name == '/session':
         ui.write(f'Session: {session.id}\nProject: {session.project}\nModel: {session.model}\nMessages: {len(session.messages)} | active boundary: {session.context_start}\nFile: {agent.store.path(session.id)}')
     elif name == '/sessions':
@@ -146,8 +149,8 @@ def main(argv=None):
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT)
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
-        ui.state = lambda: f'{agent.session.model} | {workspace.root.name} | {agent.session.id[-8:]} | {workspace.mode} | {agent.session.usage["total"]} tokens | Alt+Enter newline'
-        ui.write(f'Codine · NVIDIA · {session.model}\nProject: {config.project}\nSession: {session.id}\n/help for commands · Alt+Enter for newline · exit to quit')
+        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total']}
+        ui.welcome(config.project, session.id, session.model)
         if not config.api_key:
             ui.write('No NVIDIA_API_KEY configured. Offline commands are available; model requests need a key.')
         one_shot = args.prompt

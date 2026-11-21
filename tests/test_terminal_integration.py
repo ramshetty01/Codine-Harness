@@ -18,9 +18,9 @@ from codine.config import APP_ROOT
 
 
 class PTY:
-    def __init__(self, argv, cwd, env=None):
+    def __init__(self, argv, cwd, env=None, columns=120):
         self.master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 35, 120, 0, 0))
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 35, columns, 0, 0))
         settings = dict(os.environ, TERM='xterm-256color', PROMPT_TOOLKIT_NO_CPR='1', PYTHONPATH=str(APP_ROOT))
         settings.update(env or {})
         self.process = subprocess.Popen(argv, cwd=cwd, stdin=slave, stdout=slave, stderr=slave, env=settings, start_new_session=True)
@@ -89,6 +89,21 @@ raise SystemExit(cli.main())
                 terminal.send(b'no\r')
                 terminal.until(b'Task finished')
                 self.assertFalse((Path(directory) / 'created.txt').exists())
+                terminal.send(b'exit\r')
+                terminal.until(b'Goodbye!')
+                self.assertEqual(terminal.process.wait(timeout=5), 0)
+            finally:
+                terminal.close()
+
+    def test_slash_menu_completion_in_narrow_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--project', directory], APP_ROOT, columns=52)
+            try:
+                terminal.until('You ›'.encode())
+                terminal.send(b'/he')
+                terminal.until(b'Explore commands')
+                terminal.send(b'\t\r')
+                terminal.until(b'Show this guide')
                 terminal.send(b'exit\r')
                 terminal.until(b'Goodbye!')
                 self.assertEqual(terminal.process.wait(timeout=5), 0)

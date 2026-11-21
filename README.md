@@ -39,6 +39,10 @@ The OpenAI Python SDK sends requests to **NVIDIA**, at `https://integrate.api.nv
 
 ## Use it
 
+The terminal opens as a compact workbench: a framed project/model/session card, a teal input prompt, and a status strip showing the project, edit policy, and token usage. It keeps your terminal's normal scrollback.
+
+Type `/` to open the command menu. Use arrow keys to browse and Tab to complete a command. Tool activity uses plain labels (Read file, Edit file, Run command); results distinguish success, declined actions, and failures. Long previews are shortened for readability; `/details` shows the full last tool result. Added diff lines are green, removed lines red, and approvals appear in an amber review card. Narrow windows wrap cards rather than hiding paths. Set `NO_COLOR=1` for monochrome output.
+
 - **Enter** submits; **Alt+Enter** adds a line. A terminal supporting bracketed paste inserts a multiline paste as one editable prompt.
 - If your terminal does not preserve pasted lines, enter `/paste`, paste the task, then put `/end` on its own line.
 - Diffs appear before writes. Type **yes** to approve; any other answer declines.
@@ -84,6 +88,7 @@ Piped input is one message. Noninteractive approvals are denied; lines of a pipe
 | `/restart` | Save, validate, launch the same interpreter, and resume |
 | `/model [ID]` | Show or change the NVIDIA model for this session |
 | `/thinking` | Toggle reasoning display |
+| `/details` | Show the full output from the most recent tool |
 | `/permissions ask` | Require approval for every file mutation |
 | `/permissions auto-edit` | Approve ordinary file edits for this process; still ask for core edits and commands |
 | `/paste` | Collect lines until `/end` |
