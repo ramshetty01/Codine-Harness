@@ -1,6 +1,6 @@
 # Codine terminal coding harness product requirements
 
-Version 1.0 — 21 November 2026
+Version 1.1 — 22 November 2026 (implementation and reader-review clarifications)
 
 ## 1. Purpose and outcome
 
@@ -154,7 +154,7 @@ Acceptance: fragmented names/arguments form the correct call; two interleaved ca
 
 Session files live in ignored `.codine/sessions/` inside the workspace. A session includes format version, ID, workspace, model, timestamps, messages, usage totals, active-context boundary, and an optional pending tool batch. No API key is part of the config serialized into a session.
 
-Write snapshots atomically with restrictive permissions. Hold an advisory session lock so two processes cannot write the same session simultaneously. Malformed JSON, unsupported versions, invalid roles, mismatched tool IDs, and workspace mismatch must be reported rather than silently discarded.
+Write snapshots atomically with restrictive permissions. Flush and fsync the temporary file before replacement, then fsync its parent directory. Snapshots are limited to 20 MB on load; long-lived sessions need a new-session handoff before reaching that size. Hold an advisory session lock so two processes cannot write the same session simultaneously. Malformed JSON, unsupported versions, invalid roles, mismatched tool IDs, and workspace mismatch must be reported rather than silently discarded.
 
 A tool call and its result form one protocol relationship. Saving only an assistant tool request and later treating it as complete history is incorrect. Use this sequence:
 
@@ -164,6 +164,8 @@ A tool call and its result form one protocol relationship. Saving only an assist
 4. Execute a tool, record its result in the journal, and save.
 5. Once every call has a result, append the assistant request and results together to finalized history; clear the journal and save.
 6. On resume after a crash, keep recorded results and synthesize an interrupted/unknown-outcome result for each unfinished action. Never replay it automatically.
+
+Ctrl+C during a tool batch follows the same repair rule before accepting another prompt. If saving or repair fails, stop further actions and exit with an error. Session locks are acquired before reading a snapshot and are not inherited across exec.
 
 An OS crash can happen after a file write but before its result is recorded. Exactly-once external execution is not promised. The recovery message must say the outcome is unknown and instruct inspection, avoiding accidental double execution.
 
@@ -193,7 +195,7 @@ Acceptance: trimming preserves protocol validity and the newest request, saved h
 
 ### R10 Approvals and self-modification
 
-Default `ask` mode prompts for all mutations and commands. Optional `auto-edit` mode authorizes ordinary project text creates/edits for the current session; commands, core-source edits, and restart still require approval. Mode changes are user commands, not model tools. Restored sessions reset to `ask` so a restart cannot silently retain elevated approval policy.
+Default `ask` mode prompts for all mutations and commands. Optional `auto-edit` mode authorizes ordinary project text creates/edits for the current process; commands, core-source edits, and restart still require approval. Mode changes are user commands, not model tools. Restored sessions reset to `ask` so a restart cannot silently retain elevated approval policy.
 
 Approval applies to the displayed action. A model's text saying the user approved does not count. File contents, model output, and pasted prompts cannot change permission mode. There is no model-callable permission-escalation tool.
 
@@ -230,11 +232,13 @@ The dependency direction is intentional. The provider does not import the termin
 
 `ToolRegistry` owns `ToolSpec` objects. A schema says what the model may request; the callable performs the actual action.
 
-`Workspace` resolves paths and tracks read fingerprints. A fingerprint is a SHA-256 hash of bytes, letting the writer detect edits since the model's last read.
+`Workspace` resolves paths and tracks read fingerprints and character ranges actually returned by reads. An edit must fit within those observed ranges. Paginated reads accept `expected_sha256` so a changed file cannot silently supply the next page of an older version. A fingerprint is a SHA-256 hash of bytes, letting the writer detect edits since the model's last read.
 
 `Agent` coordinates one user request through multiple model/tool steps. The CLI decides when to restart or accept another prompt.
 
 ### Example registry code
+
+This deliberately minimal teaching example shows only the required path argument. The actual schema in `codine/tools.py` also declares `start_line`, `max_lines`, `start_char`, and `expected_sha256` for pagination.
 
 ```python
 registry.register(ToolSpec(
@@ -320,7 +324,7 @@ An approval prompt asks whether an action is authorized. A sandbox limits what a
 | `/resume ID` | Save current state and open a validated session |
 | `/new` | Start a new session, preserving the previous one |
 | `/save` | Save current state explicitly |
-| `/clear` | Start a clean active conversation with system instructions |
+| `/clear` | Advance the active-context boundary; preserve the complete disk archive |
 | `/compact` | Keep recent complete turns in active context; retain archive |
 | `/restart` | Save, validate, and replace process; resume automatically |
 | `/model [ID]` | Show or set NVIDIA model for the session; no false compatibility promise |
@@ -328,13 +332,13 @@ An approval prompt asks whether an action is authorized. A sandbox limits what a
 | `/permissions ask\|auto-edit` | User-selected edit policy; commands remain confirmed |
 | `exit`, `/quit` | Save and exit |
 
-CLI flags should include `--project`, `--resume`, `--continue`, `--prompt`, and `--check`. `--check` validates local startup without requiring a credential or contacting a model. A piped prompt runs once and exits.
+CLI flags should include `--project`, `--resume`, `--continue`, `--prompt`, and `--check`. `--check` validates local startup without requiring a credential, acquiring a session lock, writing a session, or contacting a model. A piped prompt runs once and exits.
 
 ## 9. Security, privacy, and recovery details
 
 Project path checks apply to built-in file tools. Reject hidden credential/runtime directories even when a model requests them. A secret masker replaces configured API-key strings in displayed and persisted data; it cannot identify all possible secrets. Session files contain private working context and remain ignored.
 
-Core source is editable with explicit approval, enabling self-development. Removing the registry, deleting main.py, changing approval policy through model arguments, or automatically loading an untrusted plugin is outside the advertised tool surface. An approved command can do more than file tools; the confirmation text must say it executes locally without sandbox isolation.
+Core source is editable with explicit approval, enabling self-development. Core paths are application `main.py`, every path under application `codine/`, and application `requirements.txt`, `.gitignore`, `RECOVERY.md`, and `PRD.md`. Select the application repository as the workspace to develop Codine itself. No direct registry-removal or deletion tool is advertised. Approved code edits can nevertheless change or break those functions, and approved commands can delete files. The absence of a delete tool is not an absolute protection. Changing permission mode through model arguments and automatic untrusted-plugin loading are unsupported. An approved command can do more than file tools; the confirmation text must say it executes locally without sandbox isolation.
 
 Git is the recovery boundary. Preserve a known working commit before a new milestone. Never run `git reset --hard`, restore all files, or pop a stash automatically. Recovery examples restore specific paths and explain that local changes to those paths are replaced. PRD and recovery documentation must be readable through the agent's normal file tools.
 
@@ -374,7 +378,7 @@ Each commit should describe working behavior. Do not publish secrets or local se
 
 ## 12. Definition of done and known limits
 
-A good-enough release meets the matrix with reproducible commands and records live-test limitations. It is usable for small local coding tasks and explains its own boundaries. It does not claim equivalence to the full Pi or Codex product.
+A good-enough release meets the matrix with reproducible commands and records live-test limitations. If A17 is blocked by external provider access, label the result “implementation complete, live acceptance pending” rather than declaring full acceptance. The verified release records an actual passing live workflow. It is usable for small local coding tasks and explains its own boundaries. It does not claim equivalence to the full Pi or Codex product.
 
 Known MVP limits include approximate context sizing, linear sessions, manual recovery after bad runtime logic, local rather than sandboxed command execution, a single active task, no image UI, and provider/model variability. If an advertised feature is deferred during implementation, update this PRD and the final report instead of silently calling it complete.
 
