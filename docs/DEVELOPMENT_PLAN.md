@@ -113,3 +113,8 @@ Allocation remains $0.25 smoke, $0.75 baseline, $1.50 focused improvements, $1 f
 `registry.py` is the enforcement point: the same allowed-tool rule controls schemas and dispatch. `instructions.py` supplies data for context, not executable permissions. `agent.py` owns the turn outcome and loop guard. `events.py` renders the engine's events for scripts. `budget.py` implements reservation/settlement arithmetic. The provider adapter performs transport only. `evals.py` uses the same Agent with a fake provider and grades code from outside the workspace.
 
 A useful learning distinction: instructions influence model choices, dispatch restricts available actions, session storage records what happened, and a grader checks the result. Keeping these responsibilities separate makes bugs easier to locate.
+
+
+## Implemented result for this milestone
+
+A–D are implemented and verified offline: enforced planning, root project guidance, loop/outcome controls, JSONL mode, optional OpenRouter complete-message adapter, persisted session budgeting, and the 12-task scripted evaluation runner. There are 65 passing automated tests. Stage E is deliberately pending; no inference was run in this phase. See `../VERIFICATION.md` and `EVALUATIONS.md` for evidence and limitations.

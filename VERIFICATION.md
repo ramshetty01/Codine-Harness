@@ -97,3 +97,24 @@ Tests are in `tests/test_harness.py`, `tests/test_terminal_integration.py`, `tes
 The interface now has a responsive welcome card, teal/amber styling, a slash-command completion menu, colored diffs, explicit review cards, and readable tool summaries. `/details` retains access to the complete last result. Piped output is uncolored, and `NO_COLOR=1` selects monochrome rendering.
 
 The expanded suite passed **47 tests** (7.453 seconds). New coverage verifies menu completion in an actual 52-column pseudo-terminal, Unicode card wrapping, visible command failures, secret redaction, and full-result retention behind shortened previews. Existing real-terminal paste, approval, and process-restart tests also passed. The model adapter and execution policy were unchanged; no additional paid API call was needed for this UI update.
+
+## Documentation-led foundations — 24 November 2026
+
+Research and implementation decisions are recorded in `docs/DEVELOPMENT_PLAN.md`, including the official-source inventory, the difference between full guide reading and selected reference coverage, and explicitly deferred capabilities. `docs/EVALUATIONS.md` defines the offline/live boundary.
+
+**No inference requests were made during this phase.** Documentation retrieval used public URLs, not the model APIs. OpenRouter compatibility is mocked-contract-tested only; it is not yet live-verified. The earlier NVIDIA live result above belongs to the earlier milestone.
+
+Verification:
+
+- **65 automated tests passed** in 7.813 seconds, including existing pseudo-terminal paste/approval/restart checks.
+- **12/12 offline scripted exercises passed**; each broken fixture failed its independent behavioral grader, then its trusted reference patch passed. This measures harness/grader integration, not model capability.
+- Startup checked **17 Python files and 8 tools**. JSON startup mode emitted valid JSONL.
+- Planning filtered tool schemas and rejected forced mutation/command/restart dispatch. Explicit interactive restart retained planning mode.
+- Root guidance order, reload, size/symlink rejection, and required approval for guidance edits were tested.
+- Repeated call/result pairs stopped before another request; step/loop limits returned failure outcomes. JSON output correlated tool IDs and retained a final outcome without terminal banners.
+- Mocked OpenRouter requests used the correct endpoint, excluded NVIDIA template arguments, and preserved complete opaque reasoning metadata.
+- Budget tests covered actual charges, invalid costs, exhausted reservations, unknown-cost persistence across resume, blocked retries, and overruns. These are local session controls, not proof of a remote billing cap.
+- Legacy NVIDIA sessions without provider/billing fields still loaded.
+- Credential scan, documentation-link checks, and preservation of the user's `example.py` passed.
+
+The offline report is `.codine/evals/offline.json` and remains ignored. No untrusted model-generated code was graded: all executed fixtures/reference solutions were authored locally. A real sandbox, dedicated key limit, verified model endpoint, and small compatibility smoke test remain prerequisites for later paid coding evaluations.

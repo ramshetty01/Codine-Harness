@@ -1,8 +1,10 @@
 # Codine-Harness
 
-A Pi-inspired Python terminal coding assistant, built to be understandable. Codine can inspect a project, propose file changes, run approved checks, save its conversation, and restart into updated harness code.
+A Python terminal coding assistant informed by Pi, Claude Code, and Codex, built to be understandable. Codine can inspect a project, propose file changes, run approved checks, save its conversation, and restart into updated harness code.
 
 Read **[PRD.md](PRD.md)** for the detailed architecture, concepts, code walkthrough, and acceptance requirements. **[VERIFICATION.md](VERIFICATION.md)** records what was actually tested. **[RECOVERY.md](RECOVERY.md)** explains how to recover from a broken self-edit.
+
+The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)**. The current development phase is offline: **[docs/EVALUATIONS.md](docs/EVALUATIONS.md)** explains the evaluation runner and the later paid API stage.
 
 ## Start
 
@@ -33,7 +35,7 @@ CODINE_MAX_STEPS=12
 CODINE_CONTEXT_CHARS=160000
 ```
 
-The OpenAI Python SDK sends requests to **NVIDIA**, at `https://integrate.api.nvidia.com/v1`. An OpenAI key is not needed. Existing shell variables override `.env`; existing output-budget settings also override the defaults. The app's `.env` loads first, then the selected project's `.env` supplies values that are still unset.
+By default, the OpenAI Python SDK sends requests to **NVIDIA**, at `https://integrate.api.nvidia.com/v1`. An OpenAI key is not needed. An optional OpenRouter adapter is available for the later evaluation stage; select it explicitly rather than changing the NVIDIA endpoint. Existing shell variables override `.env`; existing output-budget settings also override the defaults. The app's `.env` loads first, then the selected project's `.env` supplies values that are still unset.
 
 `python main.py --check` validates syntax and startup without an API request or session write. Offline slash commands work without a key. Model access, quotas, and compatible parameters depend on NVIDIA.
 
@@ -80,13 +82,16 @@ Piped input is one message. Noninteractive approvals are denied; lines of a pipe
 | Command | What it does |
 |---|---|
 | `/help` | Show commands and keybindings |
+| `/plan` | Read-only file tools; `/permissions ask` enables mutations again |
+| `/instructions` | Show bounded root AGENTS.md and CODINE.md project guidance |
+| `/budget` | Show OpenRouter session costs and pending reservation |
 | `/session`, `/sessions` | Show current session details / list saved IDs |
 | `/save` | Save immediately; saving is also automatic |
 | `/resume ID`, `/new` | Open saved history / start a new session |
 | `/clear` | Remove old turns from active model context, keeping the disk archive |
 | `/compact` | Keep the most recent three complete turns in active context |
 | `/restart` | Save, validate, launch the same interpreter, and resume |
-| `/model [ID]` | Show or change the NVIDIA model for this session |
+| `/model [ID]` | Show or change the selected provider's model for this session |
 | `/thinking` | Toggle reasoning display |
 | `/details` | Show the full output from the most recent tool |
 | `/permissions ask` | Require approval for every file mutation |
@@ -94,7 +99,7 @@ Piped input is one message. Noninteractive approvals are denied; lines of a pipe
 | `/paste` | Collect lines until `/end` |
 | `exit`, `/quit` | Save and exit |
 
-There is no live OpenRouter model popup in this NVIDIA runtime. `model_picker.py` and its standalone tests are retained as an earlier learning exercise. `/model ID` does not promise compatibility with every NVIDIA model: the adapter uses streaming tool calls and the Nemotron thinking parameters.
+There is no provider model-picker popup in the current runtime. `model_picker.py` and its standalone tests are retained as an earlier learning exercise. `/model ID` does not promise compatibility with every model. NVIDIA retains its Nemotron settings; OpenRouter uses complete non-streaming messages to preserve opaque reasoning metadata. Session provider identity is saved; start a new session to change providers.
 
 ## Tools and limits
 
@@ -123,9 +128,41 @@ One `Session` owns the conversation. Each snapshot is atomically replaced, saved
 
 Before executing tools, Codine saves the assistant's requested batch in a journal. It saves each result, then commits the complete call/result group to history. After a crash, missing results become **outcome unknown** entries. Actions are never automatically replayed; inspect the project before retrying.
 
-Changing source on disk does not replace functions already in memory. `/restart` validates owned Python files and runs a fresh `--check` subprocess before replacing the current process. It resumes the same project and session with permissions reset to `ask`. A failed check keeps the old process alive. This catches syntax/import failures, not every logic bug.
+Changing source on disk does not replace functions already in memory. `/restart` validates owned Python files and runs a fresh `--check` subprocess before replacing the current process. It resumes the same project and session. Auto-edit resets to `ask`; explicitly selected planning mode is retained by `/restart`. A failed check keeps the old process alive. This catches syntax/import failures, not every logic bug.
 
-For self-development, start with the Codine repository as `--project`. Read the relevant module, make one small change, run tests, then restart. Core paths (`main.py`, `codine/`, requirements, ignore rules, PRD, recovery guide) always require approval.
+For self-development, start with the Codine repository as `--project`. Read the relevant module, make one small change, run tests, then restart. Core paths (`main.py`, `codine/`, requirements, ignore rules, PRD, recovery guide), and root `AGENTS.md`/`CODINE.md` always require approval in auto-edit mode.
+
+## Planning, instructions, and automation
+
+```bash
+python main.py --plan
+python main.py --json --prompt /instructions
+python main.py --json --check
+python -m codine.evals --offline
+```
+
+Planning restricts both the advertised schemas and actual dispatch. It allows listing, reading, search, and syntax parsing; it does not allow commands, writes, or model-requested restarts. It does **not** disable model inference: typing a normal task still uses the configured model. Use offline slash commands/tests when no inference is intended.
+
+Root `AGENTS.md` loads first, then root `CODINE.md`, up to 16 KB combined. Guidance refreshes each turn and counts toward the context budget. It cannot grant permissions. Nested/global guidance and automatic reference imports are not implemented. `/instructions` shows exactly what would load.
+
+`--json` is a one-shot adapter with versioned JSONL records on stdout, including paired `tool_request`/`tool_response` IDs and a final `run_end` outcome. Approval is always denied in this mode. Step, output, and repeated-action limits exit with failure rather than claiming task success. `/restart` is interactive-only; scripts start another process using `--resume`.
+
+## Optional OpenRouter configuration (for the later API stage)
+
+Add the following to your existing `.env` only when ready to configure paid evaluations:
+
+```dotenv
+OPENROUTER_API_KEY=your-key
+OPENROUTER_MODEL=your-verified-model-id
+CODINE_BUDGET_USD=3.50
+CODINE_REQUEST_BUDGET_USD=0.25
+```
+
+Select with `--provider openrouter`; NVIDIA remains the default. For a configuration check without inference, use `python main.py --provider openrouter --prompt /model`. An explicitly configured model is required. The OpenRouter adapter is offline-contract-tested; its live compatibility is not yet verified.
+
+The ledger reserves $0.25 before each request and persists that intent. It settles against actual `usage.cost`; a connection error or missing cost keeps the reservation and blocks new requests. Inspect the provider's activity record, then use `/budget reconcile ACTUAL_USD` for that one request. Do not guess zero. If a charge exceeds the reservation/limit, the ledger blocks further requests.
+
+This is a **per-session local guard, not a remote hard cap**. One request can cost more than its reservation, and other sessions/processes spend independently. Set an OpenRouter key credit limit before paid runs. The $1.50 reserve is a plan, not money isolated by this program. New sessions do not replenish your account.
 
 ## Learn the implementation
 
@@ -149,7 +186,7 @@ python -m unittest discover -s tests -v
 
 The suite uses temporary projects, fake providers, real harmless subprocesses, and pseudo-terminals. It never calls the model API.
 
-Optional live integration test (uses NVIDIA quota):
+**Do not run live tests during the current offline phase.** For the later, explicitly selected NVIDIA integration stage (uses quota):
 
 ```bash
 python tests/live_smoke.py
