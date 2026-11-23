@@ -21,7 +21,7 @@ def check_sources(app_root=APP_ROOT):
     return len(files)
 
 
-def restart_process(agent, app_root=APP_ROOT, execute=os.execv):
+def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
     root = Path(app_root).resolve()
     agent.save()
     check_sources(root)
@@ -31,7 +31,9 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv):
     if probe.returncode:
         raise ValueError('Startup check failed. Current process kept running.\n' + (probe.stderr or probe.stdout)[-3000:])
     argv = [sys.executable, str(root / 'main.py'), '--project', agent.session.project, '--resume', agent.session.id]
-    agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; approvals return to ask mode.')
+    if plan:
+        argv.append('--plan')
+    agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')
     agent.store.close()  # Release advisory lock before replacement; descriptors are noninheritable.
     try:
         execute(sys.executable, argv)

@@ -85,10 +85,10 @@ def run_command(workspace, argv, cwd='.', timeout=30):
 
 
 def build_registry(workspace, request_restart):
-    registry = ToolRegistry()
-    def add(name, description, handler, properties, required=()):
+    registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect == "read")
+    def add(name, description, handler, properties, required=(), effect="read"):
         registry.register(ToolSpec(name, description, {'type': 'object', 'properties': properties,
-                                'required': list(required), 'additionalProperties': False}, handler))
+                                'required': list(required), 'additionalProperties': False}, handler, effect))
     string = {'type': 'string'}
     def integer(minimum, maximum):
         return {'type': 'integer', 'minimum': minimum, 'maximum': maximum}
@@ -99,11 +99,11 @@ def build_registry(workspace, request_restart):
     add('search', 'Search literal text in project files; returns bounded matching lines. Read before editing.', workspace.search,
         {'query': string, 'path': string, 'limit': integer(1, 200)}, ('query',))
     add('write_file', 'Create a NEW project text file, with diff and approval. Cannot overwrite existing files.', workspace.write_file,
-        {'path': string, 'content': string}, ('path', 'content'))
+        {'path': string, 'content': string}, ('path', 'content'), effect='write')
     add('edit_file', 'Replace exactly one occurrence of old_text previously read in the CURRENT file version. Shows diff, requires approval by default, rejects stale edits.', workspace.edit_file,
-        {'path': string, 'old_text': string, 'new_text': string}, ('path', 'old_text', 'new_text'))
+        {'path': string, 'old_text': string, 'new_text': string}, ('path', 'old_text', 'new_text'), effect='write')
     add('check_python', 'Validate Python syntax without executing the file.', workspace.check_python, {'path': string}, ('path',))
     add('run_command', 'Run an argv array without shell expansion, after explicit approval. Commands have full user filesystem/network privileges. Output bounded; default timeout 30 seconds. Use python for this harness interpreter.',
-        lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',))
-    add('request_restart', 'Ask permission to save and restart Codine at a completed tool boundary, validating its code first. Reloads edited harness code and tools; keeps session. Do not call for ordinary project edits.', request_restart, {})
+        lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',), effect='execute')
+    add('request_restart', 'Ask permission to save and restart Codine at a completed tool boundary, validating its code first. Reloads edited harness code and tools; keeps session. Do not call for ordinary project edits.', request_restart, {}, effect="restart")
     return registry

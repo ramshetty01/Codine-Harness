@@ -85,3 +85,39 @@ class NvidiaProvider:
             stream=True, stream_options={'include_usage': True},
         ) as stream:
             return collect_stream(stream, emit, self.config.show_reasoning)
+
+
+class OpenRouterProvider:
+    """Complete messages preserve opaque reasoning details without fragment guessing."""
+    def __init__(self, config):
+        self.config = config
+        self.client = None
+
+    def close(self):
+        if self.client:
+            self.client.close()
+
+    def complete(self, messages, schemas, model, emit):
+        if not self.config.api_key:
+            raise ValueError('Set OPENROUTER_API_KEY in .env before a live request.')
+        if self.client is None:
+            self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=120.0, max_retries=0)
+        response = self.client.chat.completions.create(
+            model=model, messages=messages, tools=schemas,
+            max_tokens=self.config.max_tokens, stream=False,
+            extra_body={'provider': {'require_parameters': True}},
+        )
+        if not response.choices:
+            raise RuntimeError('OpenRouter returned no choices.')
+        choice = response.choices[0]
+        reply = choice.message.model_dump(exclude_none=True)
+        calls = reply.get('tool_calls', [])
+        if calls and choice.finish_reason != 'tool_calls':
+            raise RuntimeError('OpenRouter tool batch was truncated; no tools executed.')
+        if choice.finish_reason not in ('stop', 'length', 'tool_calls') or (choice.finish_reason == 'tool_calls' and not calls):
+            raise RuntimeError('OpenRouter returned an incomplete/unsupported completion.')
+        if self.config.show_reasoning and reply.get('reasoning'):
+            emit('reasoning', reply['reasoning'])
+        if reply.get('content'):
+            emit('text', reply['content'])
+        return reply, choice.finish_reason, response.usage

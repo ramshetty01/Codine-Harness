@@ -134,6 +134,8 @@ class Workspace:
         return {"matches": matches, "truncated": listing["truncated"]}
 
     def _core(self, target):
+        if target in (self.root / 'AGENTS.md', self.root / 'CODINE.md'):
+            return True
         if not self.app_root:
             return False
         return (target == self.app_root / "main.py" or target.is_relative_to(self.app_root / "codine")

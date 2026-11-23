@@ -14,6 +14,8 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
+    '/budget': 'View or reconcile request costs',
     '/help': 'Explore commands', '/paste': 'Write a multiline task',
     '/session': 'Current session details', '/sessions': 'Browse saved sessions',
     '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
@@ -160,7 +162,7 @@ class Terminal:
         state = self.state()
         if not isinstance(state, dict):
             return self.clean(state)
-        mode = 'review edits' if state.get('mode') == 'ask' else 'auto-edit'
+        mode = {'ask': 'review edits', 'plan': 'READ ONLY', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
         text = f' ● READY  ·  {state.get("project", "")}  ·  {mode}  ·  {state.get("tokens", 0):,} tokens'
         return self.clean(clip(text, self.width))
 
@@ -280,7 +282,11 @@ class Terminal:
         if self.section:
             print(flush=True)
         self.section = None
-        if kind == 'end_stream':
+        if kind in ('end_stream', 'run_start', 'tool_request', 'tool_response'):
+            return
+        if kind == 'run_end':
+            if text.get('outcome') not in ('completed', 'command'):
+                self.line('  Run stopped: ' + text['outcome'], 'accent')
             return
         if kind == 'tool':
             self.tool_started = time.monotonic()

@@ -10,6 +10,7 @@ class ToolSpec:
     description: str
     parameters: dict
     handler: Callable
+    effect: str = "read"
 
     def declaration(self):
         return {"type": "function", "function": {"name": self.name,
@@ -53,8 +54,9 @@ def validate(value, schema, path="arguments"):
 
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self, allowed=None):
         self.tools = {}
+        self.allowed = allowed or (lambda spec: True)
 
     def register(self, spec):
         if spec.name in self.tools:
@@ -62,7 +64,7 @@ class ToolRegistry:
         self.tools[spec.name] = spec
 
     def schemas(self):
-        return [spec.declaration() for spec in self.tools.values()]
+        return [spec.declaration() for spec in self.tools.values() if self.allowed(spec)]
 
     def execute(self, call):
         name = call["function"]["name"]
@@ -71,6 +73,8 @@ class ToolRegistry:
                 raise ValueError(f"Unknown tool: {name}")
             args = json.loads(call["function"]["arguments"])
             spec = self.tools[name]
+            if not self.allowed(spec):
+                raise ValueError(f"Tool {name} is disabled by the current planning policy.")
             validate(args, spec.parameters)
             result = spec.handler(**args)
             return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)

@@ -18,9 +18,12 @@ class Config:
     max_steps: int = 12
     context_chars: int = 160000
     show_reasoning: bool = False
+    provider: str = "nvidia"
+    budget_usd: str = "3.50"
+    request_budget_usd: str = "0.25"
 
     @classmethod
-    def load(cls, project):
+    def load(cls, project, provider=None, model=None):
         project = Path(project).resolve()
         if not project.is_dir():
             raise ValueError("Project must be an existing directory.")
@@ -37,8 +40,19 @@ class Config:
             if not 1 <= value <= maximum:
                 raise ValueError(f"{env} must be between 1 and {maximum}.")
             values[key] = value
-        return cls(project=project, model=os.getenv("NVIDIA_MODEL", DEFAULT_MODEL),
-                   api_key=os.getenv("NVIDIA_API_KEY", ""), **values)
+        provider = provider or os.getenv("CODINE_PROVIDER", "nvidia")
+        if provider not in ("nvidia", "openrouter"):
+            raise ValueError("CODINE_PROVIDER must be nvidia or openrouter.")
+        if provider == "openrouter":
+            chosen = model or os.getenv("OPENROUTER_MODEL", "")
+        else:
+            chosen = model or os.getenv("NVIDIA_MODEL", DEFAULT_MODEL)
+        if not chosen:
+            raise ValueError("Set OPENROUTER_MODEL explicitly before selecting OpenRouter.")
+        return cls(project=project, model=chosen, provider=provider,
+                   api_key=os.getenv("OPENROUTER_API_KEY" if provider == "openrouter" else "NVIDIA_API_KEY", ""),
+                   budget_usd=os.getenv("CODINE_BUDGET_USD", "3.50"),
+                   request_budget_usd=os.getenv("CODINE_REQUEST_BUDGET_USD", "0.25"), **values)
 
 
 class Redactor:

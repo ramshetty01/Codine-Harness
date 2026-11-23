@@ -63,6 +63,8 @@ class Session:
     project: str
     model: str
     messages: list
+    provider: str = "nvidia"
+    billing: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -71,9 +73,9 @@ class Session:
     usage: dict = field(default_factory=lambda: {"input": 0, "output": 0, "total": 0})
 
     @classmethod
-    def create(cls, project, model, instructions):
+    def create(cls, project, model, instructions, provider="nvidia"):
         ident = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
-        return cls(ident, str(Path(project).resolve()), model, [{"role": "system", "content": instructions}])
+        return cls(ident, str(Path(project).resolve()), model, [{"role": "system", "content": instructions}], provider=provider)
 
     def repair_pending(self):
         if not self.pending:
@@ -195,6 +197,11 @@ class SessionStore:
             session = Session(**data)
             if session.version != 1 or session.id != ident or session.project != str(self.project):
                 raise ValueError("Unsupported session version, ID, or workspace.")
+            if session.provider not in ('nvidia', 'openrouter'):
+                raise ValueError('Unknown saved provider.')
+            if session.billing:
+                from .budget import Budget
+                Budget(session.billing)
             validate_messages(session.messages)
             if type(session.context_start) is not int or not 1 <= session.context_start <= len(session.messages):
                 raise ValueError("Invalid context boundary.")

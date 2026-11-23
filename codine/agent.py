@@ -1,5 +1,9 @@
 """The bounded agent loop. No UI input and no process restart happens here."""
 import time
+import json
+from collections import Counter
+from .instructions import load_instructions
+from .budget import Budget, BudgetError
 from .context import project_context
 from .sessions import validate_messages
 
@@ -45,16 +49,46 @@ class Agent:
         self.session.repair_pending()
         self.save()
 
+    def finish(self, outcome):
+        self.emit('run_end', {'outcome': outcome, 'session': self.session.id})
+        return outcome
+
     def run_turn(self, text):
+        self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
+        signatures = Counter()
+        loop_detected = False
+        guidance, paths = load_instructions(self.config.project)
+        guidance = self.redactor.text(guidance)
+        if paths:
+            self.emit('status', 'Project instructions: ' + ', '.join(paths))
+        ledger = None
+        if self.config.provider == 'openrouter':
+            if not self.config.api_key:
+                raise ValueError('Set OPENROUTER_API_KEY before a live request.')
+            if not self.session.billing:
+                self.session.billing = Budget.create(self.config.budget_usd, self.config.request_budget_usd).state
+            ledger = Budget(self.session.billing)
         self.session.messages.append({'role': 'user', 'content': self.redactor.text(text)})
         self.save()
         for step in range(self.config.max_steps):
-            messages, start = project_context(self.session, self.registry.schemas(), self.config.context_chars)
+            messages, start = project_context(self.session, self.registry.schemas(), self.config.context_chars, guidance)
             if start > self.session.context_start:
                 self.emit('status', f'Context includes recent complete turns from message {start}; older turns remain saved.')
             self.emit('status', f'Model step {step + 1}/{self.config.max_steps} …')
             started = time.monotonic()
+            if ledger:
+                ledger.reserve()
+                self.save()  # Uncertain or interrupted requests keep this reservation.
             reply, finish, usage = self.provider.complete(messages, self.registry.schemas(), self.session.model, self.emit)
+            if ledger:
+                cost = getattr(usage, 'cost', None) if usage else None
+                if cost is None:
+                    raise BudgetError('Provider omitted request cost. Reservation retained; reconcile with /budget before continuing.')
+                blocked = ledger.settle(cost)
+                self.save()
+                self.emit('status', ledger.summary())
+                if blocked:
+                    raise BudgetError(blocked)
             self.emit('end_stream', '')
             reply = self.redactor.data(reply)
             calls = reply.get('tool_calls', [])
@@ -72,11 +106,12 @@ class Agent:
                     self.emit('status', 'No answer text returned. Try a shorter task or a larger output budget.')
                 if finish == 'length':
                     self.emit('status', 'Output reached the token limit; the answer may be incomplete.')
-                return
+                return self.finish('completed' if finish != 'length' else 'output_limit')
             self.session.pending = {'reply': reply, 'results': {}}
             self.save()  # Durable intent BEFORE any side effect.
             try:
                 for call in calls:
+                    self.emit('tool_request', call)
                     self.emit('tool', call['function']['name'])
                     if self.restart_requested:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
@@ -84,12 +119,28 @@ class Agent:
                         result = self.redactor.text(self.registry.execute(call))
                     self.session.pending['results'][call['id']] = result
                     self.save()  # Durable result before the next tool.
+                    self.emit('tool_response', {'tool_call_id': call['id'], 'content': result})
                     self.emit('result', result)
+                    try:
+                        stable = json.loads(result)
+                        if isinstance(stable, dict):
+                            stable.pop('seconds', None)
+                    except ValueError:
+                        stable = result
+                    signature = json.dumps([call['function']['name'], json.loads(call['function']['arguments']), stable], sort_keys=True)
+                    signatures[signature] += 1
+                    if signatures[signature] >= 3:
+                        loop_detected = True
                 self.session.repair_pending()
                 self.save()  # Commit complete assistant/tool group.
             except KeyboardInterrupt:
                 self.recover_interrupt()
                 raise
             if self.restart_requested:
-                return
+                return self.finish('restart')
+            if loop_detected:
+                self.emit('status', 'Stopped: the same tool request and result repeated three times. Inspect the task before continuing.')
+                return self.finish('loop_limit')
         self.emit('status', f'Reached {self.config.max_steps} model steps. All tool results are saved; send a message to continue.')
+
+        return self.finish('step_limit')

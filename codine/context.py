@@ -12,12 +12,13 @@ def user_boundaries(session):
             if index >= session.context_start and message['role'] == 'user']
 
 
-def project_context(session, schemas, budget):
+def project_context(session, schemas, budget, extra_system=""):
     boundaries = user_boundaries(session)
     start = boundaries[0] if boundaries else len(session.messages)
     fixed = len(json.dumps(schemas)) + len(json.dumps(session.messages[0]))
     while True:
         messages = [dict(session.messages[0])] + session.messages[start:]
+        messages[0]['content'] += extra_system
         if start > 1:
             messages[0]['content'] += '\nOlder conversation turns are omitted from this request. Do not invent their contents; the full archive remains in the local session.'
         if fixed + len(json.dumps(messages, ensure_ascii=False)) <= budget:
