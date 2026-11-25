@@ -118,3 +118,18 @@ Verification:
 - Credential scan, documentation-link checks, and preservation of the user's `example.py` passed.
 
 The offline report is `.codine/evals/offline.json` and remains ignored. No untrusted model-generated code was graded: all executed fixtures/reference solutions were authored locally. A real sandbox, dedicated key limit, verified model endpoint, and small compatibility smoke test remain prerequisites for later paid coding evaluations.
+
+## Docker evaluation isolation — 25 November 2026
+
+Added a Docker evaluation executor with no host mounts or network, a read-only root filesystem, non-root UID/GID, dropped capabilities, no-new-privileges, resource limits, bounded input/output, and owned-container cleanup. Expected answers stay in the host grader. Normal interactive `run_command` remains unsandboxed and approval-controlled.
+
+Observed checks:
+
+- `CODINE_DOCKER_TESTS=1 .venv/bin/python -m unittest discover -s tests -v`: **75 tests passed**, 11.299 seconds, including seven real-container boundary/lifecycle tests.
+- `.venv/bin/python -m codine.evals --offline --executor docker --report .codine/evals/docker.json`: **12/12 scripted exercises passed**, with original broken fixtures rejected. **Zero inference requests.**
+- Startup: **18 Python files, 8 tools**.
+- Docker daemon was already running; the Python image was already installed. No image was pulled or additional service installed.
+- Run-pinned image ID: `sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b`.
+- After the runs, listing containers labelled `codine.eval=true` returned no leftovers.
+
+Boundary tests checked unavailable host files/API-key variables, denied outbound connectivity, non-root execution and protected filesystem writes, timeout/output limits, cancellation cleanup, and rejection of empty exit-zero output. Scope is single-file Python candidates; containers are not proof against every hostile program or kernel exploit. Live model quality and multi-file project execution remain unmeasured. See `docs/SANDBOX.md`.

@@ -31,7 +31,23 @@ print('PASS')
 '''
 
 
-def grade(root, cases):
+def equivalent(actual, expected):
+    # JSON booleans must not pass numeric cases simply because True == 1 in Python.
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return type(actual) is type(expected) and actual == expected
+    if isinstance(expected, list):
+        return isinstance(actual, list) and len(actual) == len(expected) and all(equivalent(a,b) for a,b in zip(actual,expected))
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and actual.keys() == expected.keys() and all(equivalent(actual[k],v) for k,v in expected.items())
+    return actual == expected
+
+
+def grade(root, cases, executor=None):
+    if executor is not None:
+        result = executor.evaluate((root / "task.py").read_text(), [case["args"] for case in cases])
+        passed = result["status"] == "completed" and equivalent(result.get("values"), [case["expected"] for case in cases])
+        return {**result, "passed": passed}
+
     try:
         result = subprocess.run([sys.executable, '-I', '-c', GRADER, str(root / 'task.py'), json.dumps(cases)],
             cwd=root, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3,
@@ -61,13 +77,13 @@ class ScriptedProvider:
         return {'role': 'assistant', 'content': 'Reference patch applied.'}, 'stop', None
 
 
-def run_case(task):
+def run_case(task, executor=None):
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='codine-offline-eval-') as directory:
         root = Path(directory).resolve()
         source = root / 'task.py'
         source.write_text(task['initial'])
-        broken = grade(root, task['cases'])
+        broken = grade(root, task['cases'], executor)
         store = SessionStore(root)
         try:
             session = Session.create(root, 'scripted-oracle', SYSTEM)
@@ -77,7 +93,7 @@ def run_case(task):
             registry = build_registry(workspace, lambda: {'status': 'declined'})
             agent = Agent(Config(root), provider, registry, store, session, lambda *args: None, Redactor())
             outcome = agent.run_turn(task['prompt'])
-            result = grade(root, task['cases'])
+            result = grade(root, task['cases'], executor)
             saved = store.load(session.id)
             validate_messages(saved.messages)
             return {'task': task['id'], 'split': task['split'], 'outcome': outcome,
@@ -93,10 +109,17 @@ def main(argv=None):
     parser.add_argument('--offline', action='store_true', required=True, help='Required: only scripted/offline exercises exist in this release')
     parser.add_argument('--report', default='.codine/evals/offline.json')
     parser.add_argument('--split', choices=('all', 'development', 'holdout'), default='all')
+    parser.add_argument('--executor', choices=('local', 'docker'), default='local', help='local is trusted-fixture-only; docker restricts candidate execution')
+    parser.add_argument('--image', default='python:3.12-slim', help='Locally installed Docker image; never pulled automatically')
     args = parser.parse_args(argv)
+    executor = None
+    if args.executor == 'docker':
+        from .sandbox import DockerSandbox
+        executor = DockerSandbox(args.image)
+
     tasks = json.loads((APP_ROOT / 'evals/tasks.json').read_text())['tasks']
-    results = [run_case(task) for task in tasks if args.split == 'all' or task['split'] == args.split]
-    report = {'version': 1, 'mode': 'offline-scripted', 'inference_requests': 0, 'inference_cost_usd': '0',
+    results = [run_case(task, executor) for task in tasks if args.split == 'all' or task['split'] == args.split]
+    report = {'version': 1, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
               'meaning': 'Harness/grader verification only; NOT model solve rate.',
               'passed': sum(row['passed'] for row in results), 'total': len(results), 'results': results}
     path = Path(args.report)

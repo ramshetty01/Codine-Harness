@@ -118,3 +118,7 @@ A useful learning distinction: instructions influence model choices, dispatch re
 ## Implemented result for this milestone
 
 A–D are implemented and verified offline: enforced planning, root project guidance, loop/outcome controls, JSONL mode, optional OpenRouter complete-message adapter, persisted session budgeting, and the 12-task scripted evaluation runner. There are 65 passing automated tests. Stage E is deliberately pending; no inference was run in this phase. See `../VERIFICATION.md` and `EVALUATIONS.md` for evidence and limitations.
+
+### Follow-up: evaluation isolation
+
+The single-file Python Docker executor is now implemented and tested; see `SANDBOX.md`. It has no host mounts/network and grades returned values outside the container. All 12 scripted exercises pass through it. This satisfies the execution-isolation foundation for those small tasks, not arbitrary repository builds. Multi-file staging and broader repository tasks remain the next offline milestone. Paid inference is still deferred.

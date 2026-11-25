@@ -139,6 +139,7 @@ python main.py --plan
 python main.py --json --prompt /instructions
 python main.py --json --check
 python -m codine.evals --offline
+python -m codine.evals --offline --executor docker --report .codine/evals/docker.json
 ```
 
 Planning restricts both the advertised schemas and actual dispatch. It allows listing, reading, search, and syntax parsing; it does not allow commands, writes, or model-requested restarts. It does **not** disable model inference: typing a normal task still uses the configured model. Use offline slash commands/tests when no inference is intended.
@@ -195,3 +196,5 @@ python tests/live_smoke.py
 That test automatically approves the small task in a disposable temporary workspace. Normal CLI sessions keep approvals on.
 
 This MVP has linear sessions, one active task, no plugin ecosystem, no subagents, no sandbox, and no hot reload. It is a practical learning harness, not full Pi/Codex parity. Local pre-refactor copies are preserved under ignored `.codine/backups/pre-mvp/`; your sample `example.py` is kept separate from implementation commits.
+
+The [evaluation sandbox](docs/SANDBOX.md) uses disposable Docker containers without network or host mounts. It is tested for single-file Python exercises and is separate from the interactive shell tool. Enable real Docker boundary tests with `CODINE_DOCKER_TESTS=1`; no model inference is involved.

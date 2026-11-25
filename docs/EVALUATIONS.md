@@ -51,7 +51,7 @@ These are deliberately small first tasks. They do not yet measure repository-sca
 
 Reference solutions and the grader live outside the workspace. The scripted provider knows the reference by design; it is an oracle for exercising plumbing. A holdout label in a developer-readable repository is a procedural convention, not a secret dataset. Freeze a later live evaluation set before tuning, and avoid inspecting its expected patches while iterating on development tasks.
 
-The grader uses isolated Python import configuration and a timeout, **not an OS sandbox**. This release executes only trusted fixture/reference code. Do not connect arbitrary model-written code to this grader until execution isolation has been added and verified.
+The default local grader uses isolated Python import configuration and a timeout, **not an OS sandbox**, and is for trusted fixtures only. The Docker backend now adds a restricted container boundary: use `--executor docker`. Expected answers stay on the host, while source and inputs go to the container. See [SANDBOX.md](SANDBOX.md) for verified controls and limitations. Live inference remains disabled in this runner.
 
 ## Independent grading and truthful results
 
@@ -64,7 +64,7 @@ Keep full diagnostics locally. Report aggregate success counts separately from p
 Before spending the $5:
 
 1. Freeze the current code/tasks and verify all local tests.
-2. Add and test a real isolated execution environment for untrusted model patches.
+2. Use the tested Docker executor; extend and verify it before evaluating multi-file projects or dependency installation.
 3. Verify current OpenRouter model/endpoint support and price. Select a model explicitly.
 4. Set a dedicated OpenRouter key credit limit. Configure the local session ledger; recognize that it is not an account-wide cap.
 5. Run a tiny read-only compatibility request first, including usage/cost validation.
