@@ -121,4 +121,8 @@ A–D are implemented and verified offline: enforced planning, root project guid
 
 ### Follow-up: evaluation isolation
 
-The single-file Python Docker executor is now implemented and tested; see `SANDBOX.md`. It has no host mounts/network and grades returned values outside the container. All 12 scripted exercises pass through it. This satisfies the execution-isolation foundation for those small tasks, not arbitrary repository builds. Multi-file staging and broader repository tasks remain the next offline milestone. Paid inference is still deferred.
+The single-file Python Docker executor is now implemented and tested; see `SANDBOX.md`. It has no host mounts/network and grades returned values outside the container. All 12 scripted exercises pass through it. This satisfies the execution-isolation foundation for those small tasks, not arbitrary repository builds. Multi-file staging and two package-level development exercises are now implemented (see the follow-up below). Paid inference is still deferred.
+
+### Follow-up: multi-file staging
+
+Implemented an explicit Python-only staging manifest and a Docker-only repository suite. Two development tasks exercise package imports and coordinated edits to two modules. Tests cover excluded files, symlinks, path validation, missing dependencies, and end-to-end scripted repairs. This remains infrastructure verification, not a model score. Next: broaden repository task diversity and add controlled failure/recovery scenarios before the final API stage. Dependency installation and arbitrary build commands remain deferred.

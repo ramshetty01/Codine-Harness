@@ -1,6 +1,7 @@
 """Restricted Docker execution for evaluation candidates; never falls back to host Python."""
 import json
 import os
+from pathlib import Path, PurePosixPath
 import re
 import selectors
 import shutil
@@ -9,13 +10,23 @@ import time
 import uuid
 
 RUNNER = r'''
-import contextlib, json, sys
+import contextlib, json, sys, pathlib, runpy
 payload = json.load(sys.stdin)
 # Expected answers are never sent to this process.
 try:
     namespace = {'__name__': 'candidate'}
     with contextlib.redirect_stdout(sys.stderr):
-        exec(compile(payload['source'], 'task.py', 'exec'), namespace)
+        if 'files' in payload:
+            root = pathlib.Path('/tmp/project')
+            root.mkdir()
+            for name, source in payload['files'].items():
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(source, encoding='utf-8')
+            sys.path.insert(0, str(root))
+            namespace = runpy.run_path(str(root / payload['entrypoint']))
+        else:
+            exec(compile(payload['source'], 'task.py', 'exec'), namespace)
         actual = [namespace['solve'](*args) for args in payload['inputs']]
     print(json.dumps({'values': actual}, allow_nan=False))
 except BaseException as error:
@@ -26,6 +37,43 @@ except BaseException as error:
 
 class SandboxError(RuntimeError):
     pass
+
+
+def validate_files(files, entrypoint):
+    """Accept a small, explicit Python-only manifest; never traverse a repository."""
+    if not isinstance(files, dict) or not 1 <= len(files) <= 32:
+        raise SandboxError('Expected 1–32 explicitly selected Python files.')
+    for name, source in files.items():
+        if not isinstance(name, str) or not isinstance(source, str):
+            raise SandboxError('File paths and contents must be strings.')
+        path = PurePosixPath(name)
+        if (path.is_absolute() or str(path) != name or
+                any(not part.isidentifier() for part in path.parts[:-1]) or
+                not path.name.endswith('.py') or not path.name[:-3].isidentifier() or
+                any(part in {'__pycache__', 'venv', 'node_modules'} for part in path.parts)):
+            raise SandboxError('Only normalized relative Python module paths are allowed.')
+    if entrypoint not in files:
+        raise SandboxError('Entrypoint must be in the manifest.')
+    if sum(len(source.encode('utf-8')) for source in files.values()) > 200000:
+        raise SandboxError('Staged Python sources exceed 200 KB.')
+
+
+def snapshot_files(root, paths, entrypoint):
+    """Snapshot only manifest paths, rejecting symlinks and special files."""
+    validate_files(dict.fromkeys(paths, ''), entrypoint)
+    root = Path(root).resolve()
+    files = {}
+    for name in paths:
+        target = root
+        for part in PurePosixPath(name).parts:
+            target = target / part
+            if target.is_symlink():
+                raise SandboxError('Symlinks are not allowed in evaluation manifests.')
+        if not target.is_file() or target.stat().st_size > 200000:
+            raise SandboxError('Missing, special, or oversized staged file.')
+        files[name] = target.read_text(encoding='utf-8')
+    validate_files(files, entrypoint)
+    return files
 
 
 class DockerSandbox:
@@ -62,7 +110,14 @@ class DockerSandbox:
                 self.image, 'python', '-I', '-B', '-c', RUNNER]
 
     def evaluate(self, source, inputs):
-        payload = json.dumps({'source': source, 'inputs': inputs}, allow_nan=False).encode()
+        return self._evaluate_payload({'source': source, 'inputs': inputs})
+
+    def evaluate_files(self, files, entrypoint, inputs):
+        validate_files(files, entrypoint)
+        return self._evaluate_payload({'files': files, 'entrypoint': entrypoint, 'inputs': inputs})
+
+    def _evaluate_payload(self, data):
+        payload = json.dumps(data, allow_nan=False).encode()
         if len(payload) > 256000:
             raise SandboxError('Evaluation input exceeds 256 KB.')
         name = 'codine-eval-' + uuid.uuid4().hex

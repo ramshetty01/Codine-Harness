@@ -63,6 +63,22 @@ Unit checks also verify the configured restrictions, absence of host mounts, fai
 
 ## Remaining limits
 
-This backend runs one Python source file exposing `solve`, not arbitrary repository build commands. Future multi-file evaluations need a controlled staging/copy policy, dependency setup, and immutable grader separation. Do not treat the existing interactive shell tool as sandboxed.
+This backend supports single-file functions and explicitly staged Python packages exposing `solve`, not arbitrary repository build commands. Dependency setup and larger build workflows remain deferred. Do not treat the existing interactive shell tool as sandboxed.
 
 Docker isolation relies on a trusted, maintained daemon and its OS/kernel boundary. It is not a guarantee against container/kernel exploits. Test fixtures do not prove resistance to every hostile program. This backend does not automatically enable API evaluations or change the $5 spending plan.
+
+## Multi-file Python exercises
+
+Run the repository suite without API requests:
+
+```bash
+.venv/bin/python -m codine.evals --offline --executor docker --suite repository --report .codine/evals/repository.json
+```
+
+The two development fixtures exercise invoice totals and word counting. Each has a package import and two modules to repair. The scripted provider reads every manifest file, edits the two modules, checks syntax, and finishes; the independent grader then evaluates behavior in a fresh container. Broken fixtures must fail before the reference edits can count as passing.
+
+A manifest is an explicit mapping from relative Python paths to source text. Only its listed files are snapshotted after edits. The staging validator rejects absolute/non-normalized paths, dot directories, symlinks (including parent directories), missing/special files, non-Python files, more than 32 files, and more than 200 KB of source. The existing 256 KB serialized payload cap also applies. No repository directory is mounted. Files are materialized under `/tmp/project` in the container; that path is added to Python's import search path so package imports work. Expected outputs remain outside the container.
+
+This is a snapshot of a controlled, disposable workspace after synchronous tool execution. It is not a race-proof filesystem copier for directories concurrently modified by hostile host processes. It does not install dependencies, run arbitrary build commands, stage data files, or evaluate large repositories. Only standard-library Python packages exposing `solve` through `task.py` are supported. The repository suite refuses the local executor. New unlisted files are intentionally excluded.
+
+Learning distinction: file staging chooses what enters the container; package loading lets those files import each other; Docker restricts execution; the host grader compares returned values. None of these components makes the scripted provider a real model.

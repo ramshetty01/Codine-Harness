@@ -1,0 +1,106 @@
+{
+  "tasks": [
+    {
+      "id": "invoice",
+      "split": "development",
+      "prompt": "Fix invoice totals across the money and invoice modules. Ignore negative quantities and round the final total to two decimals.",
+      "files": {
+        "task.py": "from shop.invoice import total\ndef solve(items): return total(items)\n",
+        "shop/__init__.py": "",
+        "shop/money.py": "def line_total(price, quantity):\n    return price + quantity\n",
+        "shop/invoice.py": "from shop.money import line_total\ndef total(items):\n    return sum(line_total(p, q) for p, q in items)\n"
+      },
+      "replacements": {
+        "shop/money.py": "def line_total(price, quantity):\n    return price * max(quantity, 0)\n",
+        "shop/invoice.py": "from shop.money import line_total\ndef total(items):\n    return round(sum(line_total(p, q) for p, q in items), 2)\n"
+      },
+      "cases": [
+        {
+          "args": [
+            [
+              [
+                2.5,
+                3
+              ],
+              [
+                1.25,
+                2
+              ]
+            ]
+          ],
+          "expected": 10.0
+        },
+        {
+          "args": [
+            [
+              [
+                2,
+                -3
+              ],
+              [
+                1.111,
+                3
+              ]
+            ]
+          ],
+          "expected": 3.33
+        },
+        {
+          "args": [
+            []
+          ],
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "word_counts",
+      "split": "development",
+      "prompt": "Normalize words by stripping whitespace and lowercasing, discard empty words, and count all occurrences.",
+      "files": {
+        "task.py": "from words.counting import count\ndef solve(words): return count(words)\n",
+        "words/__init__.py": "",
+        "words/normalization.py": "def normalize(word):\n    return word\n",
+        "words/counting.py": "from words.normalization import normalize\ndef count(words):\n    return {normalize(word): 1 for word in words}\n"
+      },
+      "replacements": {
+        "words/normalization.py": "def normalize(word):\n    return word.strip().lower()\n",
+        "words/counting.py": "from words.normalization import normalize\ndef count(words):\n    result = {}\n    for word in words:\n        key = normalize(word)\n        if key:\n            result[key] = result.get(key, 0) + 1\n    return result\n"
+      },
+      "cases": [
+        {
+          "args": [
+            [
+              " A ",
+              "a",
+              "B",
+              " "
+            ]
+          ],
+          "expected": {
+            "a": 2,
+            "b": 1
+          }
+        },
+        {
+          "args": [
+            []
+          ],
+          "expected": {}
+        },
+        {
+          "args": [
+            [
+              "Hi",
+              "HI",
+              "hi"
+            ]
+          ],
+          "expected": {
+            "hi": 3
+          }
+        }
+      ]
+    }
+  ]
+}

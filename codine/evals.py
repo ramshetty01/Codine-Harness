@@ -42,7 +42,15 @@ def equivalent(actual, expected):
     return actual == expected
 
 
-def grade(root, cases, executor=None):
+def grade(root, cases, executor=None, manifest=None):
+    if manifest is not None:
+        from .sandbox import snapshot_files
+        if executor is None:
+            raise ValueError("Repository tasks require the Docker executor.")
+        files = snapshot_files(root, manifest, "task.py")
+        result = executor.evaluate_files(files, "task.py", [case["args"] for case in cases])
+        return {**result, "passed": result["status"] == "completed" and equivalent(result.get("values"), [case["expected"] for case in cases])}
+
     if executor is not None:
         result = executor.evaluate((root / "task.py").read_text(), [case["args"] for case in cases])
         passed = result["status"] == "completed" and equivalent(result.get("values"), [case["expected"] for case in cases])
@@ -67,8 +75,13 @@ class ScriptedProvider:
         validate_messages(messages)
         self.calls += 1
         steps = [('read_file', {'path': 'task.py'}),
-                 ('edit_file', {'path': 'task.py', 'old_text': self.task['initial'], 'new_text': self.task['reference']}),
+                 ('edit_file', {'path': 'task.py', 'old_text': self.task.get('initial', ''), 'new_text': self.task.get('reference', '')}),
                  ('check_python', {'path': 'task.py'})]
+        if 'files' in self.task:
+            steps = [('read_file', {'path': name}) for name in self.task['files']]
+            for name, replacement in self.task['replacements'].items():
+                steps.extend([('edit_file', {'path': name, 'old_text': self.task['files'][name], 'new_text': replacement}),
+                              ('check_python', {'path': name})])
         if self.calls <= len(steps):
             name, args = steps[self.calls-1]
             return {'role': 'assistant', 'content': None, 'tool_calls': [
@@ -82,8 +95,17 @@ def run_case(task, executor=None):
     with tempfile.TemporaryDirectory(prefix='codine-offline-eval-') as directory:
         root = Path(directory).resolve()
         source = root / 'task.py'
-        source.write_text(task['initial'])
-        broken = grade(root, task['cases'], executor)
+        manifest = task.get('files')
+        if manifest:
+            from .sandbox import validate_files
+            validate_files(manifest, 'task.py')
+            for name, content in manifest.items():
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+        else:
+            source.write_text(task['initial'])
+        broken = grade(root, task['cases'], executor, manifest)
         store = SessionStore(root)
         try:
             session = Session.create(root, 'scripted-oracle', SYSTEM)
@@ -93,7 +115,7 @@ def run_case(task, executor=None):
             registry = build_registry(workspace, lambda: {'status': 'declined'})
             agent = Agent(Config(root), provider, registry, store, session, lambda *args: None, Redactor())
             outcome = agent.run_turn(task['prompt'])
-            result = grade(root, task['cases'], executor)
+            result = grade(root, task['cases'], executor, manifest)
             saved = store.load(session.id)
             validate_messages(saved.messages)
             return {'task': task['id'], 'split': task['split'], 'outcome': outcome,
@@ -111,15 +133,22 @@ def main(argv=None):
     parser.add_argument('--split', choices=('all', 'development', 'holdout'), default='all')
     parser.add_argument('--executor', choices=('local', 'docker'), default='local', help='local is trusted-fixture-only; docker restricts candidate execution')
     parser.add_argument('--image', default='python:3.12-slim', help='Locally installed Docker image; never pulled automatically')
+    parser.add_argument('--suite', choices=('functions', 'repository'), default='functions')
     args = parser.parse_args(argv)
+    if args.suite == 'repository' and args.executor != 'docker':
+        parser.error('--suite repository requires --executor docker')
     executor = None
     if args.executor == 'docker':
         from .sandbox import DockerSandbox
         executor = DockerSandbox(args.image)
 
-    tasks = json.loads((APP_ROOT / 'evals/tasks.json').read_text())['tasks']
-    results = [run_case(task, executor) for task in tasks if args.split == 'all' or task['split'] == args.split]
-    report = {'version': 1, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
+    filename = 'repository_tasks.json' if args.suite == 'repository' else 'tasks.json'
+    tasks = json.loads((APP_ROOT / 'evals' / filename).read_text())['tasks']
+    selected = [task for task in tasks if args.split == 'all' or task['split'] == args.split]
+    if not selected:
+        parser.error('No tasks match the selected suite and split.')
+    results = [run_case(task, executor) for task in selected]
+    report = {'version': 1, 'suite': args.suite, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
               'meaning': 'Harness/grader verification only; NOT model solve rate.',
               'passed': sum(row['passed'] for row in results), 'total': len(results), 'results': results}
     path = Path(args.report)

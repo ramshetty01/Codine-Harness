@@ -133,3 +133,7 @@ Observed checks:
 - After the runs, listing containers labelled `codine.eval=true` returned no leftovers.
 
 Boundary tests checked unavailable host files/API-key variables, denied outbound connectivity, non-root execution and protected filesystem writes, timeout/output limits, cancellation cleanup, and rejection of empty exit-zero output. Scope is single-file Python candidates; containers are not proof against every hostile program or kernel exploit. Live model quality and multi-file project execution remain unmeasured. See `docs/SANDBOX.md`.
+
+## 27 November 2026 — multi-file offline repository evaluations
+
+Added explicit Python manifests, Docker package imports, and two multi-module repair tasks. Full opt-in Docker test run: 80 tests passed; an additional empty-split regression was subsequently added and the repository test module passed (Docker cases already verified in the full run). Startup check passed (18 modules, eight tools). Docker function suite: 12/12; Docker repository suite: 2/2. No inference requests or charges. Reports are local ignored artifacts. These are scripted infrastructure checks, not model capability scores. Candidate execution remains standard-library Python only; interactive command execution is unchanged.
