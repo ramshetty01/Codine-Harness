@@ -1,4 +1,4 @@
-"""A scrollback-friendly workbench UI with paste-aware input and safe output."""
+"""A compact, scrollback-friendly terminal UI with paste-aware input and safe output."""
 import json
 import os
 import re
@@ -21,7 +21,7 @@ COMMANDS = {
     '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
     '/save': 'Save your session', '/clear': 'Clear active context; keep archive',
     '/compact': 'Keep the latest three turns in context',
-    '/restart': 'Check code, restart, and resume', '/model': 'Show or change NVIDIA model',
+    '/restart': 'Check code, restart, and resume', '/model': 'Show or change model',
     '/thinking': 'Show or hide reasoning', '/details': 'Full output of the last tool',
     '/permissions': 'Choose ask or auto-edit', '/quit': 'Save and exit',
 }
@@ -31,15 +31,16 @@ TOOL_LABELS = {
     'run_command': 'Run command', 'request_restart': 'Prepare restart',
 }
 STYLE = Style.from_dict({
-    'brand': '#64d8cb bold', 'border': '#627480', 'muted': '#9aaab5',
-    'text': '#e4eaf0', 'accent': '#eebf77 bold', 'success': '#83d49c',
-    'error': '#ff8f91', 'added': '#83d49c', 'removed': '#ff8f91',
-    'prompt': '#64d8cb bold',
-    'bottom-toolbar': 'bg:#1b2932 #c3d1dc',
-    'completion-menu.completion': 'bg:#1b2932 #dce6ee',
-    'completion-menu.completion.current': 'bg:#36505b #ffffff bold',
-    'completion-menu.meta.completion': 'bg:#1b2932 #9aaab5',
-    'completion-menu.meta.completion.current': 'bg:#36505b #ffffff',
+    # Inherit the terminal's foreground/background so light themes work too.
+    'brand': 'bold', 'border': 'ansibrightblack', 'muted': 'ansibrightblack',
+    'text': '', 'accent': 'ansiyellow', 'success': 'ansigreen',
+    'error': 'ansired bold', 'added': 'ansigreen', 'removed': 'ansired',
+    'prompt': 'ansiyellow bold',
+    'bottom-toolbar': 'noreverse',
+    'completion-menu.completion': 'noreverse',
+    'completion-menu.completion.current': 'reverse bold',
+    'completion-menu.meta.completion': 'ansibrightblack noreverse',
+    'completion-menu.meta.completion.current': 'reverse',
 })
 
 
@@ -80,6 +81,7 @@ class Terminal:
         self.buffer = ''
         self.last_result = None
         self.tool_started = None
+        self.tool_target = ''
         self.editor = None
         if self.interactive:
             bindings = KeyBindings()
@@ -90,11 +92,11 @@ class Terminal:
             def newline(event):
                 event.current_buffer.insert_text('\n')
             self.editor = PromptSession(multiline=True, key_bindings=bindings,
-                prompt_continuation=FormattedText([('class:border', '    · ')]),
+                prompt_continuation=FormattedText([('class:border', '  · ')]),
                 bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
                 color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
                 completer=CommandCompleter(), complete_while_typing=True,
-                reserve_space_for_menu=6, enable_history_search=False)
+                reserve_space_for_menu=4, enable_history_search=False)
 
     @property
     def width(self):
@@ -120,22 +122,17 @@ class Terminal:
         else:
             self.line(text, 'error' if text.startswith('Error:') else 'text')
 
-    def rule(self, label, tone='border'):
-        title = clip('─ ' + self.clean(label) + ' ', self.width - 2)
-        self.line('╭' + title + '─' * max(0, self.width - get_cwidth(title) - 2) + '╮', tone)
-
     def heading(self, label, tone='brand'):
-        title = clip('── ' + self.clean(label) + ' ', self.width)
-        self.line(title + '─' * max(0, self.width - get_cwidth(title)), tone)
+        self.line('  ' + self.clean(label), tone)
 
     def panel(self, title, rows, tone='brand'):
-        self.rule(title, tone)
+        """An open margin; wrap every detail without truncating approvals."""
+        self.heading(title, tone)
         available = self.width - 4
         for row in rows:
-            # Wrap rather than hide project paths or approval details.
             rest = self.clean(row).expandtabs(4)
             if not rest:
-                self.line('│' + ' ' * (self.width - 2) + '│', 'border')
+                self.line('  │', 'border')
             while rest:
                 line = ''
                 for char in rest:
@@ -143,38 +140,36 @@ class Terminal:
                         break
                     line += char
                 rest = rest[len(line):]
-                self.line('│ ' + line + ' ' * (available - get_cwidth(line)) + ' │', 'text')
-        self.line('╰' + '─' * (self.width - 2) + '╯', 'border')
+                self.line('  │ ' + line)
 
     def welcome(self, project, session, model):
         self.line()
-        self.panel('◈ C O D I N E', [
-            'Your terminal coding workbench', '',
-            f'Project: {project}', f'Model: {model}', f'Session: {session}', '',
-            '01  Describe what you want to build.',
-            '02  Review the proposed changes.',
-            '03  Approve, test, and keep building.',
-        ])
-        self.line('  /help  commands    /sessions  resume work    /quit  exit', 'muted')
-        self.line('  Enter  send        Alt+Enter  new line        /  command menu', 'muted')
+        self.heading('[/] codine')
+        self.line('    ' + str(project), 'muted')
+        self.line('    ' + model, 'muted')
+        self.line()
+        self.line('  / commands   ·   Alt+Enter newline   ·   Ctrl+D exit', 'muted')
 
     def toolbar(self):
         state = self.state()
         if not isinstance(state, dict):
             return self.clean(state)
-        mode = {'ask': 'review edits', 'plan': 'READ ONLY', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
-        text = f' ● READY  ·  {state.get("project", "")}  ·  {mode}  ·  {state.get("tokens", 0):,} tokens'
-        return self.clean(clip(text, self.width))
+        mode = {'ask': 'ask before edits', 'plan': 'PLAN · read only', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
+        # Mode is first so narrow terminals never hide the execution policy.
+        text = f'  {mode}  ·  {state.get("tokens", 0):,} tokens'
+        model = state.get('model', '')
+        if model:
+            text += '  ·  ' + model
+        return FormattedText([('class:muted', clip(self.clean(text), self.width))])
 
     def prompt(self):
         if not self.editor:
             raise EOFError()
         self.line()
-        self.line('─' * self.width, 'border')
-        return self.editor.prompt(FormattedText([('class:prompt', 'You › ')]))
+        return self.editor.prompt(FormattedText([('class:prompt', '› ')]))
 
     def paste(self):
-        self.panel('MULTILINE INPUT', ['Paste your task. Put /end on its own line to send.', 'Ctrl+C cancels this input.'], 'accent')
+        self.panel('Paste a task', ['Paste your task. Put /end on its own line to send.', 'Ctrl+C cancels this input.'], 'accent')
         lines = []
         while True:
             line = input('  · ')
@@ -185,24 +180,24 @@ class Terminal:
     def approve(self, description):
         self.emit('end_stream', '')
         self.line()
-        self.panel('YOUR REVIEW', str(description).splitlines() + ['', 'yes = approve    anything else = decline'], 'accent')
+        self.panel('Review required', str(description).splitlines() + ['', 'yes = approve    anything else = decline'], 'accent')
         if not self.interactive:
-            self.line('  ○ Declined — approval requires an interactive terminal.', 'accent')
+            self.line('  Declined: approval requires an interactive terminal.', 'accent')
             return False
         try:
             answer = PromptSession(style=STYLE if self.color else Style.from_dict({}), color_depth=None if self.color else ColorDepth.DEPTH_1_BIT).prompt('Approve? Type yes: ')
             approved = answer.strip().lower() == 'yes'
-            self.line('  ✓ Approved' if approved else '  ○ Declined', 'success' if approved else 'accent')
+            self.line('  Approved' if approved else '  Declined', 'success' if approved else 'accent')
             return approved
         except (KeyboardInterrupt, EOFError):
-            self.line('  ○ Declined.', 'accent')
+            self.line('  Declined.', 'accent')
             return False
 
     def details(self):
         if self.last_result is None:
             self.line('No tool output yet. Ask Codine to inspect your project first.', 'muted')
             return
-        self.heading('FULL TOOL OUTPUT')
+        self.heading('Tool output')
         self.write(self.last_result)
 
     def _result(self, text):
@@ -214,13 +209,13 @@ class Terminal:
         except (ValueError, TypeError):
             value = None
         lines = []
-        title, tone, symbol = 'Completed', 'success', '✓'
+        title, tone, symbol = 'Completed', 'muted', '└'
         if isinstance(value, dict):
             status = value.get('status')
             if value.get('error') or value.get('ok') is False or status in ('timeout', 'output_limit') or value.get('exit_code') not in (None, 0):
                 title, tone, symbol = 'Needs attention', 'error', '!'
             elif status in ('declined', 'skipped'):
-                title, tone, symbol = status.capitalize(), 'accent', '○'
+                title, tone, symbol = status.capitalize(), 'accent', '└'
             elif status:
                 title = status.replace('_', ' ').capitalize()
             elif value.get('ok'):
@@ -251,9 +246,11 @@ class Terminal:
         else:
             lines = self.last_result.splitlines()
         self.line(f'  {symbol} {title}{elapsed}', tone)
-        for line in lines[:8]:
+        limit = 8 if tone == 'error' else 3
+        for line in lines[:limit]:
             self.line('    ' + clip(line, self.width - 4), 'muted')
-        self.line('    /details shows the full returned output', 'muted')
+        if len(lines) > limit or any(get_cwidth(line) > self.width - 4 for line in lines[:limit]):
+            self.line('    … /details for full output', 'muted')
 
     def _flush(self, final=False):
         keep = max(map(len, self.redactor.secrets), default=1) - 1
@@ -273,7 +270,7 @@ class Terminal:
             if self.section != kind:
                 self.emit('end_stream', '')
                 self.line()
-                self.heading('CODINE' if kind == 'text' else 'THINKING', 'brand' if kind == 'text' else 'muted')
+                self.heading('codine' if kind == 'text' else 'thinking', 'brand' if kind == 'text' else 'muted')
                 self.section = kind
             self.buffer += text
             self._flush()
@@ -282,7 +279,16 @@ class Terminal:
         if self.section:
             print(flush=True)
         self.section = None
-        if kind in ('end_stream', 'run_start', 'tool_request', 'tool_response'):
+        if kind == 'tool_request':
+            # Use only a small action label, never dump edit bodies or full arguments.
+            try:
+                args = json.loads(text['function']['arguments'])
+                target = args.get('path', args.get('pattern', '')) if isinstance(args, dict) else ''
+                self.tool_target = self.clean(target).replace('\n', ' ').replace('\t', ' ')
+            except (KeyError, TypeError, ValueError):
+                self.tool_target = ''
+            return
+        if kind in ('end_stream', 'run_start', 'tool_response'):
             return
         if kind == 'run_end':
             if text.get('outcome') not in ('completed', 'command'):
@@ -290,7 +296,10 @@ class Terminal:
             return
         if kind == 'tool':
             self.tool_started = time.monotonic()
-            self.line(f'\n  ◇ {TOOL_LABELS.get(text, text)}  ({text})', 'accent')
+            label = TOOL_LABELS.get(text, text)
+            target = '  ' + self.tool_target if self.tool_target else ''
+            self.line(clip(f'  · {label}{target}', self.width))
+            self.tool_target = ''
         elif kind == 'result':
             self._result(text)
         else:

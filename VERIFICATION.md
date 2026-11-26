@@ -137,3 +137,9 @@ Boundary tests checked unavailable host files/API-key variables, denied outbound
 ## 27 November 2026 — multi-file offline repository evaluations
 
 Added explicit Python manifests, Docker package imports, and two multi-module repair tasks. Full opt-in Docker test run: 80 tests passed; an additional empty-split regression was subsequently added and the repository test module passed (Docker cases already verified in the full run). Startup check passed (18 modules, eight tools). Docker function suite: 12/12; Docker repository suite: 2/2. No inference requests or charges. Reports are local ignored artifacts. These are scripted infrastructure checks, not model capability scores. Candidate execution remains standard-library Python only; interactive command execution is unchanged.
+
+## 27 November 2026 — compact terminal redesign
+
+Replaced the framed onboarding card, repeated separators, and fixed teal palette with a compact wordmark, native terminal colors, plain prompt, permission-first footer, and open review margins. Tool rows show a sanitized target; previews remain expandable via `/details`. Full diffs and approval details remain visible. Added an offline fictional transcript at `scripts/preview_ui.py`.
+
+Validation: startup check passed; unittest discovery ran 83 tests, with 74 passing and nine opt-in Docker tests skipped. Real PTY tests covered multiline paste with separate approval, narrow slash completion, and restart/session restore. UI regression checks cover redacted tool targets, hidden edit bodies, full output retention, wrapped wide characters, and permission visibility in narrow footers. No model API requests were made. Unrelated user files were preserved.

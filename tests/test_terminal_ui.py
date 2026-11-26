@@ -41,13 +41,33 @@ class TerminalUITests(unittest.TestCase):
         self.assertNotIn('last marker', preview.getvalue())
         self.assertIn('last marker', details.getvalue())
 
+    def test_tool_target_is_redacted_and_edit_body_is_not_displayed(self):
+        terminal = Terminal(Redactor(['secret-value']), interactive=False)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            terminal.emit('tool_request', {'function': {'arguments': json.dumps({
+                'path': 'secret-value/file.py', 'new_text': 'PRIVATE EDIT BODY'})}})
+            terminal.emit('tool', 'edit_file')
+        self.assertIn('Edit file', out.getvalue())
+        self.assertNotIn('secret-value', out.getvalue())
+        self.assertNotIn('PRIVATE EDIT BODY', out.getvalue())
+
+    def test_narrow_footer_keeps_permission_mode_visible(self):
+        from prompt_toolkit.formatted_text import fragment_list_to_text
+        terminal = Terminal(Redactor(), interactive=False)
+        terminal.state = lambda: {'mode': 'plan', 'tokens': 200, 'model': 'long-model-name' * 10}
+        with patch('codine.terminal.shutil.get_terminal_size', return_value=os.terminal_size((38, 24))):
+            text = fragment_list_to_text(terminal.toolbar())
+        self.assertIn('PLAN · read only', text)
+        self.assertLessEqual(get_cwidth(text), 36)
+
     def test_narrow_panel_wraps_without_losing_text(self):
         terminal = Terminal(Redactor(), interactive=False)
         output = io.StringIO()
         with patch('codine.terminal.shutil.get_terminal_size', return_value=os.terminal_size((38, 24))), redirect_stdout(output):
             terminal.panel('REVIEW', ['路' * 24])
         lines = output.getvalue().splitlines()
-        self.assertTrue(all(get_cwidth(line) == 36 for line in lines))
+        self.assertTrue(all(get_cwidth(line) <= 36 for line in lines))
         self.assertEqual(output.getvalue().count('路'), 24)
 
 

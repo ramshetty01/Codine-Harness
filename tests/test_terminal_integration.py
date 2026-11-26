@@ -80,7 +80,7 @@ raise SystemExit(cli.main())
             capture = Path(directory) / 'capture.json'
             terminal = PTY([sys.executable, '-c', driver], directory, {'CAPTURE': str(capture)})
             try:
-                terminal.until('You ›'.encode())
+                terminal.until('›'.encode())
                 terminal.send(b'\x1b[200~Create file\nsecond line\nyes\x1b[201~\r')
                 terminal.until(b'Approve? Type yes:')
                 messages = json.loads(capture.read_text())
@@ -99,7 +99,7 @@ raise SystemExit(cli.main())
         with tempfile.TemporaryDirectory() as directory:
             terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--project', directory], APP_ROOT, columns=52)
             try:
-                terminal.until('You ›'.encode())
+                terminal.until('›'.encode())
                 terminal.send(b'/he')
                 terminal.until(b'Explore commands')
                 terminal.send(b'\t\r')
@@ -114,15 +114,18 @@ raise SystemExit(cli.main())
         with tempfile.TemporaryDirectory() as directory:
             terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--project', directory], APP_ROOT)
             try:
-                terminal.until('You ›'.encode())
+                terminal.until('›'.encode())
                 sessions = list((Path(directory) / '.codine/sessions').glob('*.json'))
                 self.assertEqual(len(sessions), 1)
                 ident = sessions[0].stem
                 offset = len(terminal.output)
                 terminal.send(b'/restart\r')
                 terminal.until(b'Restarting to load edited code', start=offset)
+                terminal.until(b'[/] codine', start=offset)
+                header = terminal.output.index(b'[/] codine', offset)
+                terminal.until('›'.encode(), start=header)
+                terminal.send(b'/session\r')
                 terminal.until(('Session: ' + ident).encode(), start=offset)
-                terminal.until('You ›'.encode(), start=terminal.output.index(('Session: ' + ident).encode(), offset))
                 self.assertEqual(len(list((Path(directory) / '.codine/sessions').glob('*.json'))), 1)
                 terminal.send(b'exit\r')
                 terminal.until(b'Goodbye!')

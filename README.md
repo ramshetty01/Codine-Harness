@@ -56,9 +56,9 @@ By default, the OpenAI Python SDK sends requests to **NVIDIA**, at `https://inte
 
 ## Use it
 
-The terminal opens as a compact workbench: a framed project/model/session card, a teal input prompt, and a status strip showing the project, edit policy, and token usage. It keeps your terminal's normal scrollback.
+The terminal opens with a small `[/] codine` header, project path, and model. A plain `›` prompt sits above a quiet footer showing permission mode, tokens, and model. Colors inherit your terminal theme; amber marks input and review. Normal terminal scrollback is preserved. Session details are available with `/session`.
 
-Type `/` to open the command menu. Use arrow keys to browse and Tab to complete a command. Tool activity uses plain labels (Read file, Edit file, Run command); results distinguish success, declined actions, and failures. Long previews are shortened for readability; `/details` shows the full last tool result. Added diff lines are green, removed lines red, and approvals appear in an amber review card. Narrow windows wrap cards rather than hiding paths. Set `NO_COLOR=1` for monochrome output.
+Type `/` to open the command menu. Use arrow keys to browse and Tab to complete a command. Tool rows show the action and target file. Results distinguish success, declined actions, and failures; successful previews show up to three lines, failures up to eight. `/details` shows the full last tool result. Added diff lines are green, removed lines red, and approvals use an open review margin with every detail wrapped rather than truncated. Narrow windows wrap review details. Set `NO_COLOR=1` for monochrome output.
 
 - **Enter** submits; **Alt+Enter** adds a line. A terminal supporting bracketed paste inserts a multiline paste as one editable prompt.
 - If your terminal does not preserve pasted lines, enter `/paste`, paste the task, then put `/end` on its own line.
@@ -213,3 +213,11 @@ That test automatically approves the small task in a disposable temporary worksp
 This MVP has linear sessions, one active task, no plugin ecosystem, no subagents, no sandbox, and no hot reload. It is a practical learning harness, not full Pi/Codex parity. Local pre-refactor copies are preserved under ignored `.codine/backups/pre-mvp/`; your sample `example.py` is kept separate from implementation commits.
 
 The [evaluation sandbox](docs/SANDBOX.md) uses disposable Docker containers without network or host mounts. It is tested for single-file Python exercises and is separate from the interactive shell tool. Enable real Docker boundary tests with `CODINE_DOCKER_TESTS=1`; no model inference is involved.
+
+## Preview the terminal design offline
+
+```bash
+.venv/bin/python scripts/preview_ui.py
+```
+
+This renders a fictional read/edit/review transcript without calling a model or changing project files. The design takes cues from [Pi's transcript/editor/footer separation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md), [Claude Code's keyboard-driven interaction](https://code.claude.com/docs/en/interactive-mode), and the [Codex CLI reference](https://github.com/openai/codex). Codine retains its own key bindings and approval rules; this is a visual redesign, not feature parity.

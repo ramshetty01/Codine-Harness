@@ -196,7 +196,7 @@ def main(argv=None):
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
-        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total']}
+        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model}
         ui.welcome(config.project, session.id, session.model)
         if not config.api_key:
             ui.write(f'No {config.provider.upper()}_API_KEY configured. Offline commands are available; model requests need a key.')
