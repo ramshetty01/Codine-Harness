@@ -42,7 +42,7 @@ Commands run as your user, not in a sandbox. Inspect every command approval.
 
 
 def parser():
-    result = argparse.ArgumentParser(description='Codine — a Pi-inspired Python terminal coding harness')
+    result = argparse.ArgumentParser(prog='codine', description='Codine — a Pi-inspired Python terminal coding harness')
     result.add_argument('--project', default='.', help='Workspace directory (default: current directory)')
     group = result.add_mutually_exclusive_group()
     group.add_argument('--resume', metavar='ID', help='Resume a project session')

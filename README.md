@@ -16,6 +16,21 @@ source .venv/bin/activate
 python main.py
 ```
 
+To install the `codine` command for your user:
+
+```bash
+.venv/bin/python scripts/install_cli.py
+```
+
+Then open any project folder and launch it:
+
+```bash
+cd /path/to/your/project
+codine
+```
+
+The launcher uses this checkout's virtual environment, so you do not need to activate it. It preserves your current directory and forwards all arguments (`codine --continue`, `codine --plan`, `codine --help`). Keep this checkout and its `.venv`; rerun the installer if you move them. On a machine where `~/.local/bin` is not on PATH, add `export PATH="$HOME/.local/bin:$PATH"` to your shell configuration and open a new terminal. Remove `~/.local/bin/codine` to uninstall the launcher.
+
 For a fresh checkout:
 
 ```bash
