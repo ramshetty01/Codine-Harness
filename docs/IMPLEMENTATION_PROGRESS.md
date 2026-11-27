@@ -87,3 +87,24 @@ Provider failures now have sanitized classifications and recovery advice.
 Metadata GETs have bounded retries; inference retries remain disabled when charge
 or replay safety cannot be proven. A5 stays open for that explicit limitation.
 No live inference was used in this checkpoint either.
+
+## Repository workflow and shared allowance checkpoint
+
+The next four parallel issues added bounded glob/regex repository search (R2),
+read-only Git status/diffs and session baselines (R5), scoped file-operation policy
+(E6), and an OpenRouter allowance shared by interactive sessions and evaluations
+(M4). See [REPOSITORY_SEARCH.md](REPOSITORY_SEARCH.md),
+[GIT_AWARENESS.md](GIT_AWARENESS.md), [COMMAND_POLICY.md](COMMAND_POLICY.md), and
+[SHARED_SPENDING.md](SHARED_SPENDING.md).
+
+Permission checks cover Docker staging and automatically loaded guidance as well
+as explicit file reads/writes. Git baseline metadata does not establish exclusive
+authorship; only current-byte matches against this session's file-tool records
+are attributed. Unknown or shell-created changes remain explicit. Repository
+search limits scans and isolates potentially pathological regular expressions.
+
+The shared spending migration preserves the existing ledger rather than resetting
+it. Unknown provider charges block the allowance across sessions. Owner-bound
+request IDs and durable settlement receipts permit recovery without double
+charging. This is an installation/state-root allowance domain, not tamperproof
+account-global billing. No live inference was used to implement these features.
