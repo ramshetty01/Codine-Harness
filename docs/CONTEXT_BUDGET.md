@@ -55,3 +55,10 @@ Offline regression coverage: `tests/test_context_budget.py` exercises Unicode,
 opaque reasoning, tool-pair preservation, exact budget boundaries, independent
 character limits, model/output selection, configuration validation, and rejection
 before provider execution. Existing reasoning/archive tests remain in place.
+
+`/context` inspects the same projection used by the request loop, without a model
+call or archive mutation. It shows loaded instruction paths, active/omitted
+message counts, tool schema/result sizes, estimated input, reserved output and
+remaining local capacity. It explicitly reports that no semantic summary exists
+and marks oversized current turns as over-limit. The user's next message is not
+included yet. Figures are conservative estimates, not exact provider token counts.

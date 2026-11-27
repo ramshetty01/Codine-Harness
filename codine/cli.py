@@ -8,6 +8,7 @@ from .agent import Agent, PersistenceError, SYSTEM
 from .config import APP_ROOT, Config, Redactor
 from . import __version__
 from .context import compact
+from .context_inspector import inspect_context, format_context
 from .provider import NvidiaProvider, OpenRouterProvider
 from .budget import Budget
 from .events import JsonTerminal
@@ -29,6 +30,7 @@ HELP = '''Commands
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
+  /context              Inspect active context and estimated remaining space
   /compact              Keep the latest 3 whole turns in active context
   /restart              Save, check, restart, and resume with updated code
   /model [ID|free]       Pick an OpenRouter model, or set a model ID
@@ -157,6 +159,8 @@ def command(text, agent, workspace, ui):
         session.context_start = len(session.messages)
         agent.save()
         ui.write('Active context cleared. The full session archive remains on disk.')
+    elif name == '/context':
+        ui.write(format_context(inspect_context(agent)))
     elif name == '/compact':
         changed = compact(session)
         agent.save()
