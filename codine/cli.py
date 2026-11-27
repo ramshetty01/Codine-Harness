@@ -78,16 +78,12 @@ def parser():
 
 def show_error(ui, error):
     ui.emit('end_stream', '')
-    if isinstance(error, AuthenticationError):
-        message = 'Provider rejected the API key (401). Check the selected provider API key; shell variables override .env.'
-    elif isinstance(error, RateLimitError):
-        message = 'Provider rate limit reached. Wait before trying again. Completed tool results remain saved.'
-    elif isinstance(error, APIConnectionError):
-        message = 'Provider connection failed or timed out. History and completed tools remain saved.'
-    elif isinstance(error, APIStatusError):
-        message = f'Provider returned HTTP {error.status_code}. Check model access, request compatibility, and quota.'
-    elif isinstance(error, APIError):
-        message = 'Provider request failed. History remains saved.'
+    if isinstance(error, APIError):
+        from .failure_policy import classify_failure
+        failure = classify_failure(error)
+        message = failure.message + ' ' + failure.action
+        if failure.retry_after_seconds is not None:
+            message += f' Provider retry-after hint: {failure.retry_after_seconds:g}s (not permission to replay a billed request).'
     else:
         message = str(error)
     ui.write('Error: ' + message)

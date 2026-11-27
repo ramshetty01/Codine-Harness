@@ -1,8 +1,10 @@
 """Bounded OpenRouter metadata reads. These endpoints do not run inference."""
 import json
+import time
 import urllib.error
 import urllib.request
 from .budget import money
+from .failure_policy import retry_metadata_read
 
 
 def metadata(endpoint, api_key=''):
@@ -12,13 +14,23 @@ def metadata(endpoint, api_key=''):
     if api_key:
         headers['Authorization'] = 'Bearer ' + api_key
     request = urllib.request.Request('https://openrouter.ai/api/v1/' + endpoint, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = response.read(8_000_001)
-        if len(raw) > 8_000_000:
-            raise ValueError('Catalog response exceeds local limit.')
+    def read(timeout):
+        deadline = time.monotonic() + timeout
+        raw = bytearray()
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Metadata response deadline exceeded.')
+                chunk = response.read1(min(65536, 8_000_001 - len(raw)))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+                if len(raw) > 8_000_000:
+                    raise ValueError('Catalog response exceeds local limit.')
         return json.loads(raw)['data']
-    except (urllib.error.URLError, KeyError, ValueError) as error:
+    try:
+        return retry_metadata_read(read)
+    except (OSError, KeyError, TypeError, ValueError):
         raise ValueError('OpenRouter metadata unavailable; no inference requested.') from None
 
 

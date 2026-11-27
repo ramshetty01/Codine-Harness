@@ -8,6 +8,8 @@ The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVEL
 
 ## Start
 
+For provider failure handling and the limits of automatic retries, see **[Provider failures](docs/PROVIDER_FAILURES.md)**.
+
 For narrowly scoped runtime network and credential grants, see **[Execution profiles](docs/EXECUTION_PROFILES.md)**.
 
 For explicit Docker dependency preparation and reusable image IDs, see **[Prepared environments](docs/PREPARED_ENVIRONMENTS.md)**.
