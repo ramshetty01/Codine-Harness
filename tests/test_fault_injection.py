@@ -9,7 +9,6 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
-import httpx
 from openai import APITimeoutError, APIConnectionError, RateLimitError
 from codine.agent import Agent, PersistenceError
 from codine.budget import BudgetError
@@ -49,9 +48,9 @@ class FaultInjectionTests(unittest.TestCase):
         self.agent = Agent(self.config, self.provider, self.registry, self.store, self.session, lambda *args: None, Redactor())
 
     def test_sdk_timeout_disconnect_and_rate_limit_keep_uncertain_charge_blocked(self):
-        request = httpx.Request('POST', 'https://offline.invalid/chat')
+        request = NS(method='POST', url='https://offline.invalid/chat')
         failures = [APITimeoutError(request=request), APIConnectionError(request=request),
-                    RateLimitError('rate limited', response=httpx.Response(429, request=request), body={'error': 'limit'})]
+                    RateLimitError('rate limited', response=NS(status_code=429, request=request, headers={}), body={'error': 'limit'})]
         self.config.provider = 'openrouter'
         self.config.api_key = 'offline'
         for error in failures:
