@@ -12,6 +12,11 @@ import uuid
 from .config import Redactor
 
 
+def validate_title(title):
+    if not isinstance(title, str) or len(title) > 120 or any(not c.isprintable() for c in title):
+        raise ValueError("Session title must be printable text of at most 120 characters.")
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -68,6 +73,7 @@ class Session:
     execution: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
     plan_revision: int = 0
+    title: str = ""
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -155,6 +161,7 @@ class SessionStore:
     def save(self, session):
         from .task_plan import validate_plan
         validate_plan(session.plan)
+        validate_title(session.title)
         if type(session.plan_revision) is not int or session.plan_revision < 0:
             raise ValueError("Invalid plan revision.")
         validate_messages(session.messages)
@@ -211,6 +218,7 @@ class SessionStore:
                 Budget(session.billing)
             from .task_plan import validate_plan
             validate_plan(session.plan)
+            validate_title(session.title)
             if type(session.plan_revision) is not int or session.plan_revision < 0:
                 raise ValueError("Invalid plan revision.")
             validate_messages(session.messages)
@@ -235,7 +243,7 @@ class SessionStore:
             try:
                 data = json.loads(path.read_text(encoding='utf-8'))
                 if isinstance(data, dict):
-                    result.append({'id': path.stem, 'updated': data.get('updated', ''), 'model': data.get('model', ''), 'messages': len(data.get('messages', []))})
+                    result.append({'id': path.stem, 'title': data.get('title', '') if isinstance(data.get('title', ''), str) else '', 'updated': data.get('updated', ''), 'model': data.get('model', ''), 'messages': len(data.get('messages', []))})
             except (OSError, ValueError, TypeError):
                 continue
         return result

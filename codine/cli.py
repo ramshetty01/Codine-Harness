@@ -27,7 +27,9 @@ HELP = '''Commands
   /instructions         Show loaded root project guidance
   /budget               Show session spending; reconcile AMOUNT if unknown
   /paste                Read multiple lines until /end (fallback for paste)
-  /session, /sessions   Current session / saved session IDs
+  /session              Current session details
+  /sessions [query]     Search and select saved sessions
+  /rename TITLE         Name the current session
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
@@ -45,7 +47,7 @@ HELP = '''Commands
   exit, /quit           Save and quit
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
-       run_command, request_restart.
+       run_command, request_restart, update_plan.
 Use /sandbox to inspect command isolation. File tools operate in the host workspace.
 '''
 
@@ -137,18 +139,44 @@ def command(text, agent, workspace, ui):
     elif name == '/details':
         ui.details()
     elif name == '/session':
-        ui.write(f'Session: {session.id}\nProject: {session.project}\nModel: {session.model}\nMessages: {len(session.messages)} | active boundary: {session.context_start}\nFile: {agent.store.path(session.id)}')
+        ui.write(f'Session: {session.title or session.id}\nID: {session.id}\nProject: {session.project}\nModel: {session.model}\nMessages: {len(session.messages)} | active boundary: {session.context_start}\nFile: {agent.store.path(session.id)}')
+    elif name == '/rename':
+        from .sessions import validate_title
+        title = agent.redactor.text(argument).strip()
+        validate_title(title)
+        if not title:
+            raise ValueError('Usage: /rename TITLE')
+        old = session.title
+        session.title = title
+        try:
+            agent.save()
+        except BaseException:
+            session.title = old
+            raise
+        ui.write('Session named: ' + title)
     elif name == '/sessions':
+        from .session_picker import select_session, matching_sessions, session_label
         rows = agent.store.list()
-        ui.write('\n'.join(f'{row["id"]}  {row["messages"]} messages  {row["model"]}' for row in rows) or 'No sessions.')
+        if ui.interactive and rows:
+            selected = select_session(rows, session.id, argument)
+            if selected and selected != session.id:
+                return command('/resume ' + selected, agent, workspace, ui)
+        else:
+            ui.write('\n'.join(session_label(row) for row in matching_sessions(rows, argument)) or 'No matching sessions.')
     elif name == '/save':
         agent.save()
         ui.write('Saved ' + session.id)
     elif name in ('/resume', '/new'):
         agent.save()
         if name == '/resume':
+            if not argument and ui.interactive:
+                from .session_picker import select_session
+                rows = agent.store.list()
+                argument = select_session(rows, session.id) if rows else None
+                if not argument:
+                    return
             if not argument:
-                raise ValueError('Usage: /resume SESSION_ID')
+                raise ValueError('Usage: /resume SESSION_ID; interactive terminals also support /sessions')
             candidate = agent.store._read_session(argument)
             if candidate.provider != agent.config.provider:
                 raise ValueError('Session uses another provider. Restart with --resume ID to select its provider.')
@@ -234,6 +262,8 @@ def main(argv=None):
     if args.check:
         count = check_sources()
         registry = build_registry(Workspace(APP_ROOT, lambda _: False), lambda: None)
+        from .task_plan import register_plan_tool
+        register_plan_tool(registry, None)  # Validate declaration only; startup executes no tools.
         message = f'Startup check passed: {count} Python files, {len(registry.schemas())} tools. No API request or session write.'
         if args.json:
             JsonTerminal(Redactor()).emit('check', {'ok': True, 'message': message})
