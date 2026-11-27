@@ -400,7 +400,7 @@ def main(argv=None):
             except PersistenceError:
                 raise
             except KeyboardInterrupt:
-                ui.write('Input cancelled. Use exit or Ctrl+D to quit.')
+                ui.write('Input interrupted. Unsent draft text is kept in the editor. Use exit or Ctrl+D to quit.')
             except EOFError:
                 break
             except (OSError, ValueError, RuntimeError) as error:

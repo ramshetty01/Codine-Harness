@@ -92,6 +92,7 @@ class Terminal:
         self.last_result = None
         self.tool_started = None
         self.tool_target = ''
+        self.draft = ""
         self.editor = None
         if self.interactive:
             bindings = KeyBindings()
@@ -177,16 +178,26 @@ class Terminal:
         if not self.editor:
             raise EOFError()
         self.line()
-        return self.editor.prompt(FormattedText([('class:prompt', '› ')]))
+        try:
+            text = self.editor.prompt(FormattedText([('class:prompt', '› ')]), default=self.draft)
+        except KeyboardInterrupt:
+            self.draft = self.editor.default_buffer.text
+            raise
+        self.draft = ''
+        return text
 
     def paste(self):
         self.panel('Paste a task', ['Paste your task. Put /end on its own line to send.', 'Ctrl+C cancels this input.'], 'accent')
         lines = []
-        while True:
-            line = input('  · ')
-            if line == '/end':
-                return '\n'.join(lines)
-            lines.append(line)
+        try:
+            while True:
+                line = input('  · ')
+                if line == '/end':
+                    return '\n'.join(lines)
+                lines.append(line)
+        except KeyboardInterrupt:
+            self.draft = '\n'.join(lines)
+            raise
 
     def approve(self, description):
         self.emit('end_stream', '')
@@ -200,7 +211,10 @@ class Terminal:
             approved = answer.strip().lower() == 'yes'
             self.line('  Approved' if approved else '  Declined', 'success' if approved else 'accent')
             return approved
-        except (KeyboardInterrupt, EOFError):
+        except KeyboardInterrupt:
+            self.line('  Interrupted. This approval was not granted.', 'accent')
+            raise
+        except EOFError:
             self.line('  Declined.', 'accent')
             return False
 
