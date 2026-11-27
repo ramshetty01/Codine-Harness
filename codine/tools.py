@@ -27,11 +27,13 @@ def stop_process(process):
     process.wait()
 
 
-def approve_command(workspace, executor, argv, cwd, description):
+def approve_command(workspace, executor, argv, cwd, description, *, force_approval=False):
     if workspace.mode == 'plan':
         raise ValueError('Commands are disabled in planning mode.')
     policy = getattr(workspace, 'command_policy', None)
     if policy is None:
+        if force_approval and not getattr(workspace, 'policy_interactive', False):
+            return False
         return workspace.approve(description)
     decision = policy.decide(executor=executor, project=workspace.root, cwd=cwd,
                              argv=argv, interactive=getattr(workspace, 'policy_interactive', False))
@@ -39,6 +41,10 @@ def approve_command(workspace, executor, argv, cwd, description):
     workspace.emit('Policy: ' + decision.reason)
     if decision.action == 'deny':
         return False
+    if force_approval:
+        if not getattr(workspace, 'policy_interactive', False):
+            return False
+        return workspace.approve(description + '\nPolicy: ' + decision.reason + '\nProfile expansion still needs fresh approval.')
     if decision.action == 'allow':
         # Still show the exact command/snapshot being authorized by this rule.
         workspace.emit(description)
@@ -119,8 +125,13 @@ def execution_status(workspace):
     executor = getattr(workspace, 'command_executor', None)
     if executor is None:
         return 'HOST: commands run with your user filesystem/network permissions, outside a sandbox.'
-    return ('DOCKER: command execution only; no host mounts or network; non-root/read-only root. '
-            'File read/edit tools still operate in the host workspace. Image: ' + executor.image)
+    profile = getattr(workspace, 'execution_profile', None)
+    message = ('DOCKER: command execution only; no host mounts; non-root/read-only root. '
+               'Default network: none. File tools still use the host workspace. Image: ' + executor.image)
+    if profile:
+        message += (f'\nExplicit execution profile: {profile.source} ({len(profile.rules)} exact command rules). '
+                    'Network/credential expansion requires fresh approval; credential output is withheld.')
+    return message
 
 
 def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
@@ -136,16 +147,29 @@ def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
         executor.prepare_request(manifest, argv, cwd=cwd)
     except SandboxError as error:
         raise ValueError(str(error)) from error
+    profile = getattr(workspace, 'execution_profile', None)
+    grant = profile.grant(project=workspace.root, image=executor.image, cwd=cwd, argv=argv) if profile else None
+    if grant and grant.credentials:
+        workspace.execution_credentials.check_arguments(grant)
     listing = '\n'.join(f'{entry.path}  {entry.size_bytes} bytes  sha256:{entry.sha256}' for entry in manifest.files)
     description = (f'Docker command: {shlex.join(argv)}\nCwd: /tmp/project/{cwd}\n'
                    f'Image: {executor.image}\nTimeout: {timeout}s\n'
                    f'Snapshot SHA256: {manifest.digest}\nSelected files:\n{listing}\n'
-                   'No host mounts, no network; only this snapshot enters the container. Approve?')
-    if not approve_command(workspace, 'docker', argv, cwd, description):
-        return command_rejection(workspace)
+                   'Only this snapshot enters the container; no host mounts.\n' +
+                   (grant.describe() if grant else 'Network: none. No forwarded credentials.') + '\nApprove?')
+    expanded = bool(grant and grant.expands_access)
+    if not approve_command(workspace, 'docker', argv, cwd, description, force_approval=expanded):
+        result = command_rejection(workspace)
+        if expanded and result['status'] != 'denied':
+            result['reason'] = 'Execution profile expansion was not approved.'
+        return result
+    access = {}
+    if grant:
+        credentials = workspace.execution_credentials.for_grant(grant) if grant.credentials else {}
+        access = {'network': grant.network, 'credentials': credentials}
     executor.timeout = timeout
     try:
-        return executor.execute(manifest, argv, cwd=cwd, on_output=getattr(workspace, 'command_output', None))
+        return executor.execute(manifest, argv, cwd=cwd, on_output=getattr(workspace, 'command_output', None), **access)
     except SandboxError as error:
         raise ValueError(str(error)) from error
 
@@ -173,7 +197,7 @@ def build_registry(workspace, request_restart):
         ('path', 'start_line', 'end_line', 'new_text', 'expected_sha256'), effect='write')
     add('check_python', 'Validate Python syntax without executing the file.', workspace.check_python, {'path': string}, ('path',))
     if getattr(workspace, 'command_executor', None) is not None:
-        add('run_command', 'Run argv in an isolated Docker container after approval. Explicit files are REQUIRED: only the staged UTF-8 snapshot enters the container. cwd is relative to that snapshot. No host mounts/network or installed host dependencies. File tools themselves still use the host workspace.',
+        add('run_command', 'Run argv in an isolated Docker container after approval. Explicit files are REQUIRED: only the staged UTF-8 snapshot enters the container. cwd is relative to that snapshot. No host mounts or installed host dependencies. Network/credential exceptions come only from explicit user profiles with fresh approval. File tools themselves still use the host workspace.',
             lambda **args: run_docker_command(workspace, **args),
             {'argv': {'type': 'array', 'items': string}, 'files': {'type': 'array', 'items': string},
              'cwd': string, 'timeout': integer(1, 120)}, ('argv', 'files'), effect='execute')

@@ -1,5 +1,6 @@
 """A checked process replacement loads new Python code and tool definitions."""
 import ast
+from contextlib import nullcontext
 import os
 from pathlib import Path
 import subprocess
@@ -45,12 +46,16 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
             argv.extend(['--image', execution['image']])
     if getattr(agent, 'command_policy_path', None):
         argv.extend(['--policy', agent.command_policy_path])
+    if getattr(agent, 'execution_profile_path', None):
+        argv.extend(['--execution-profile', agent.execution_profile_path])
     if plan:
         argv.append('--plan')
     agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')
     agent.store.close()  # Release advisory lock before replacement; descriptors are noninheritable.
     try:
-        execute(sys.executable, argv)
+        captured = getattr(agent, 'execution_credentials', None)
+        with captured.restart_environment() if captured is not None else nullcontext():
+            execute(sys.executable, argv)
     finally:
         # Only reached if exec fails (or a test injects a fake executor).
         agent.store.acquire(agent.session.id)

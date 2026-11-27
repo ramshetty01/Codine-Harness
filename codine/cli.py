@@ -64,6 +64,7 @@ def parser():
     result.add_argument('--provider', choices=('nvidia', 'openrouter'))
     result.add_argument('--model', help='Explicit model ID for the selected provider')
     result.add_argument('--executor', choices=('host', 'docker'), help='Command executor; resume retains saved choice, new sessions default host')
+    result.add_argument('--execution-profile', help='Explicit user-owned Docker access profile outside the project')
     result.add_argument('--policy', help='Explicit user-owned command policy JSON; project files are never auto-loaded')
     result.add_argument('--image', help='Locally installed Docker image; resolved to an immutable image ID')
     result.add_argument('--plan', action='store_true', help='Read-only tools; no commands, edits, or model-requested restart')
@@ -286,6 +287,10 @@ def main(argv=None):
     try:
         from .command_policy import CommandPolicy
         command_policy = CommandPolicy.load(args.policy)
+        from .execution_profiles import ExecutionProfile
+        execution_profile = ExecutionProfile.load(args.execution_profile) if args.execution_profile else None
+        # Capture only explicitly named shell values before dotenv can add project settings.
+        execution_credentials = execution_profile.capture_shell() if execution_profile else None
         config = Config.load(args.project, provider=args.provider, model=args.model)
         redactor = Redactor.environment()
         ui.redactor = redactor
@@ -312,6 +317,8 @@ def main(argv=None):
             command_executor = RepositoryExecutor(image=image, timeout=30)
         elif args.image:
             raise ValueError('--image requires --executor docker.')
+        if execution_profile:
+            execution_profile.check_scope(config.project, executor_name, command_executor.image if command_executor else None)
         session.execution = {'executor': executor_name}
         if command_executor:
             session.execution['image'] = command_executor.image
@@ -320,6 +327,8 @@ def main(argv=None):
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
         workspace.command_output = lambda event: ui.emit('command_output', event)
         workspace.command_executor = command_executor
+        workspace.execution_profile = execution_profile
+        workspace.execution_credentials = execution_credentials
         workspace.command_policy = command_policy
         workspace.policy_interactive = ui.interactive
         workspace.protected_paths = {command_policy.source.resolve()}
@@ -327,6 +336,8 @@ def main(argv=None):
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.command_policy_path = str(command_policy.source) if args.policy else None
+        agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
+        agent.execution_credentials = execution_credentials
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)

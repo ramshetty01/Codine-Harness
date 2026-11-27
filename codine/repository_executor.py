@@ -1,9 +1,11 @@
 """Bounded, isolated repository commands; no host execution fallback."""
 import hashlib
+import copy
 import unicodedata
 from pathlib import PurePosixPath
 
 from .sandbox import DockerSandbox, SandboxError
+from .execution_profiles import credential_name
 from .staging import Manifest, StagingLimits, _validate_path
 
 # Command stdout/stderr remain separate Docker streams. exec replaces the trusted
@@ -42,6 +44,7 @@ class RepositoryExecutor(DockerSandbox):
     def create_args(self, name):
         args = super().create_args(name)
         args[-1] = COMMAND_RUNNER
+        args[args.index('--network') + 1] = getattr(self, '_command_network', 'none')
         return args
 
     @staticmethod
@@ -87,8 +90,45 @@ class RepositoryExecutor(DockerSandbox):
             raise SandboxError('Only bounded, explicitly allowed build environment settings are accepted.')
         return {'files': files, 'argv': list(argv), 'cwd': cwd, 'env': dict(env)}
 
-    def execute(self, manifest, argv, *, cwd='.', env=None, on_output=None):
+    def execute(self, manifest, argv, *, cwd='.', env=None, on_output=None, network='none', credentials=None):
         payload = self.prepare_request(manifest, argv, cwd=cwd, env=env)
-        result = self._run_payload(payload, payload_limit=50_000_000, on_output=on_output)
-        result.update({'manifest_digest': manifest.digest, 'argv': list(argv), 'cwd': cwd})
-        return result
+        if network not in ('none', 'bridge'):
+            raise SandboxError('Command network must be none or bridge.')
+        credentials = {} if credentials is None else credentials
+        if (not isinstance(credentials, dict) or len(credentials) > 8 or
+                any(not credential_name(name) for name in credentials) or
+                any(not isinstance(value, str) or not value or '\0' in value or len(value.encode()) > 16384
+                    for value in credentials.values()) or
+                sum(len(value.encode()) for value in credentials.values()) > 32768):
+            raise SandboxError('Invalid explicit command credentials.')
+        if credentials and any(value in argument for value in credentials.values() for argument in argv):
+            raise SandboxError('Credentials must not appear in command arguments.')
+        payload['env'].update(credentials)
+        # Each request owns its transport state; concurrent jobs cannot share network grants.
+        transport = copy.copy(self)
+        transport._command_network = network
+        try:
+            try:
+                result = transport._run_payload(payload, payload_limit=50_000_000,
+                                           on_output=None if credentials else on_output)
+            except Exception:
+                if credentials:
+                    raise SandboxError('Credential-scoped command failed; output and transport details withheld.') from None
+                raise
+            if credentials:
+                # Withholding all output also covers encoded/transformed credentials.
+                # Copy only trusted typed status metadata, never arbitrary transport fields.
+                result = {
+                    'status': result.get('status') if result.get('status') in
+                        ('completed', 'timeout', 'output_limit', 'cancelled') else 'failed',
+                    'exit_code': result.get('exit_code') if type(result.get('exit_code')) is int else None,
+                    'seconds': result.get('seconds') if type(result.get('seconds')) in (int, float) else None,
+                    'image': self.image, 'stdout': '', 'stderr': '', 'output_withheld': True,
+                    'notice': 'Credential-bearing command output withheld; status only.',
+                }
+            result.update({'manifest_digest': manifest.digest, 'argv': list(argv), 'cwd': cwd})
+            return result
+        finally:
+            transport._command_network = 'none'
+            for name in credentials:
+                payload['env'].pop(name, None)
