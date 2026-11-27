@@ -91,3 +91,28 @@ class GitAwarenessTests(unittest.TestCase):
             (root / 'new.py').write_text('new\n')
             inspector = GitInspector(Workspace(root, lambda _: True), lambda: Session.create(root, 'fake', 'system'))
             self.assertIn('+new', inspector.diff('new.py')['diff'])
+
+    def test_file_policy_applies_to_index_and_automatic_hashes(self):
+        from unittest.mock import Mock
+        from codine.command_policy import CommandPolicy, FileRule
+        (self.root / 'app.py').write_text('value = 2\n')
+        rule = FileRule(id='private', action='ask', operation='read',
+                        project=str(self.root), match='exact', path='app.py')
+        self.ws.command_policy = CommandPolicy(self.root / 'policy.json', file_rules=(rule,))
+        self.ws.policy_interactive = True
+        self.ws.approve = Mock(return_value=True)
+        self.inspector.capture()
+        self.inspector.status()
+        self.ws.approve.assert_not_called()
+        self.assertIsNone(self.session.git_baseline['entries']['app.py']['sha256'])
+        self.inspector.diff('app.py')
+        self.ws.approve.assert_called_once()
+        self.ws.approve.reset_mock()
+        self.inspector.diff('app.py', staged=True)
+        self.ws.approve.assert_called_once()
+        deny = FileRule(id='private', action='deny', operation='read',
+                        project=str(self.root), match='exact', path='app.py')
+        self.ws.command_policy = CommandPolicy(self.root / 'policy.json', file_rules=(deny,))
+        with self.assertRaises(ValueError):
+            self.inspector.diff('app.py', staged=True)
+        self.assertNotIn('app.py', [row['path'] for row in self.inspector.status()['changes']])
