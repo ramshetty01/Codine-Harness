@@ -109,10 +109,23 @@ class ProjectCheckTests(unittest.TestCase):
         (self.root / 'pytest.ini').write_text('')
         ident = self.checks.discover()['checks'][0]['id']
         self.ws.command_executor = object()
-        with patch('codine.tools.prepare_docker_command', return_value=lambda *_: {
-                'status': 'completed', 'exit_code': 7, 'manifest_digest': 'fake-manifest'}) as prepare:
+        def run(*_):
+            return {'status': 'completed', 'exit_code': 7, 'manifest_digest': 'fake-manifest'}
+        run.snapshot_hashes = {'pytest.ini': self.checks.candidates[ident]['source_sha256']}
+        with patch('codine.tools.prepare_docker_command', return_value=run) as prepare:
             result = self.checks.run(ident, files=['pytest.ini', 'test_app.py'])
         prepare.assert_called_once_with(self.ws, ['python', '-m', 'pytest'],
                                        ['pytest.ini', 'test_app.py'], '.', 30)
         self.assertEqual(result['classification'], 'failed')
         self.assertEqual(result['outcome']['manifest_digest'], 'fake-manifest')
+
+    def test_docker_rejects_changed_config_in_approved_snapshot(self):
+        (self.root / 'pytest.ini').write_text('')
+        ident = self.checks.discover()['checks'][0]['id']
+        self.ws.command_executor = object()
+        run = Mock()
+        run.snapshot_hashes = {'pytest.ini': 'changed-during-staging'}
+        with patch('codine.tools.prepare_docker_command', return_value=run):
+            with self.assertRaisesRegex(ValueError, 'snapshot configuration'):
+                self.checks.run(ident, files=['pytest.ini'])
+        run.assert_not_called()

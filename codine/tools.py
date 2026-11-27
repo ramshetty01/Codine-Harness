@@ -204,6 +204,7 @@ def prepare_docker_command(workspace, argv, files, cwd='.', timeout=30, *, timeo
             return executor.execute(manifest, argv, cwd=cwd, on_output=output, cancel_event=cancel, **access)
         except SandboxError as error:
             raise ValueError(str(error)) from error
+    run.snapshot_hashes = {entry.path: entry.sha256 for entry in manifest.files}
     return run
 
 

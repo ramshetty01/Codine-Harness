@@ -120,6 +120,8 @@ class ProjectChecks:
         if callable(run):
             # Approval can take time; refuse a changed config before dispatch.
             self._unchanged(row)
+            if docker and getattr(run, 'snapshot_hashes', {}).get(row['source']) != row['source_sha256']:
+                raise ValueError('Approved snapshot configuration differs from discovery. Discover checks again.')
             outcome = run(None, getattr(self.workspace, 'command_output', None))
         else:
             outcome = run
