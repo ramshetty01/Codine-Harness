@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
+import unicodedata
 from .staging import _read_file
 
 EXCLUDED = {".git", ".codine", ".sessions", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
@@ -34,7 +35,21 @@ class Workspace:
         self.mode = "ask"
         self.track_changes = track_changes
 
-    def resolve(self, name, directory=False):
+    def _file_decision(self, operation, target):
+        policy = getattr(self, 'command_policy', None)
+        if policy is None:
+            return None
+        decision = policy.decide_file(operation=operation, project=self.root,
+            path=target.relative_to(self.root).as_posix(),
+            interactive=getattr(self, 'policy_interactive', False))
+        self.last_policy_decision = decision
+        return decision
+
+    def resolve(self, name, directory=False, *, operation='read'):
+        if operation not in ('read', 'write'):
+            raise ValueError('Unknown file operation.')
+        if operation == 'write' and self.mode == 'plan':
+            raise ValueError('Writes are disabled in planning mode.')
         if not isinstance(name, str) or not name or "\x00" in name:
             raise ValueError("Provide a nonempty project-relative path.")
         relative = Path(name)
@@ -42,20 +57,56 @@ class Workspace:
             raise ValueError("Paths must stay inside the project.")
         current = self.root
         for part in relative.parts:
-            if part in EXCLUDED or (part.startswith(".env") and part != ".env.example") or part.lower().endswith((".pem", ".key", ".p12")) or part in (".ssh", ".aws", ".gnupg"):
+            lower = part.casefold()
+            if lower in EXCLUDED or (lower.startswith(".env") and lower != ".env.example") or lower.endswith((".pem", ".key", ".p12")) or lower in (".ssh", ".aws", ".gnupg"):
                 raise ValueError("Credentials and generated/internal files are excluded.")
             current = current / part
             if current.is_symlink():
                 raise ValueError("Symbolic links are not allowed.")
-        if current.resolve() in getattr(self, 'protected_paths', set()):
-            raise ValueError('User command policy is protected from model file tools; edit it outside Codine.')
+        for protected in getattr(self, 'protected_paths', set()):
+            if current.resolve() == protected or (current.exists() and protected.exists() and current.samefile(protected)):
+                raise ValueError('User command policy is protected from model file tools; edit it outside Codine.')
         if not current.resolve().is_relative_to(self.root):
             raise ValueError("Path escapes the project.")
         if not directory and current.is_dir():
             raise ValueError("Expected a file, not a directory.")
+        # Exact rules must not be bypassed through case/short-name aliases on
+        # filesystems that accept a different spelling for an existing entry.
+        policy = getattr(self, 'command_policy', None)
+        if policy is not None and policy.file_rules:
+            parent = self.root
+            for part in relative.parts:
+                candidate = parent / part
+                if candidate.exists():
+                    with os.scandir(parent) as entries:
+                        if not any(unicodedata.normalize('NFC', entry.name) == unicodedata.normalize('NFC', part)
+                                   for entry in entries):
+                            raise ValueError('Use the canonical file path spelling for policy checks.')
+                parent = candidate
+        decision = self._file_decision(operation, current)
+        if decision and decision.action == 'deny':
+            raise ValueError('File policy: ' + decision.reason)
         return current
 
+    def read_allowed_without_prompt(self, path):
+        """Filter automatically loaded guidance without implicit read approvals."""
+        try:
+            target = self.resolve(path.relative_to(self.root).as_posix())
+        except ValueError:
+            return False
+        decision = self._file_decision('read', target)
+        return decision is None or decision.action == 'allow'
+
+    def _authorize_read(self, path):
+        decision = self._file_decision('read', path)
+        if decision and decision.action == 'deny':
+            raise ValueError('File policy: ' + decision.reason)
+        if decision and decision.action == 'ask':
+            if not self.approve('Read ' + path.relative_to(self.root).as_posix() + '?\nPolicy: ' + decision.reason):
+                raise ValueError('Read approval declined.')
+
     def _read(self, path):
+        self._authorize_read(path)
         # Reopen every component beneath a directory descriptor: resolve() alone
         # cannot prevent an attacker swapping a symlink after validation.
         parts = path.relative_to(self.root).parts
@@ -120,12 +171,25 @@ class Workspace:
                 or target in [self.app_root / name for name in ("requirements.txt", "model_picker.py", ".gitignore", "RECOVERY.md", "PRD.md")])
 
     def _confirm(self, target, description, before, after):
+        self.resolve(target.relative_to(self.root).as_posix(), operation='write')
+        decision = self._file_decision('write', target)
         self.emit(preview_change(target.relative_to(self.root).as_posix(), before, after))
-        return (self.mode == "auto-edit" and not self._core(target)) or self.approve(description)
+        if self._core(target):
+            if decision and decision.rules:
+                from .command_policy import Decision
+                self.last_policy_decision = Decision('ask', 'Core files always require approval; file allow cannot relax this.', decision.rules)
+                description += '\nPolicy: ' + self.last_policy_decision.reason
+            return self.approve(description)
+        if decision and decision.rules:
+            self.emit('Policy: ' + decision.reason)
+            if decision.action == 'allow':
+                return True
+            return self.approve(description + '\nPolicy: ' + decision.reason)
+        return self.mode == 'auto-edit' or self.approve(description)
 
     def _atomic_write(self, target, data, original=None, record=True):
+        self.resolve(target.relative_to(self.root).as_posix(), operation='write')
         target.parent.mkdir(parents=True, exist_ok=True)
-        self.resolve(target.relative_to(self.root).as_posix())
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
         fd, temporary = tempfile.mkstemp(prefix=".codine-write-", dir=target.parent)
         try:
@@ -135,7 +199,7 @@ class Workspace:
                 os.fsync(handle.fileno())
             os.chmod(temporary, mode)
             # Recheck the target after user approval and before replacement.
-            self.resolve(target.relative_to(self.root).as_posix())
+            self.resolve(target.relative_to(self.root).as_posix(), operation='write')
             if original is None and target.exists():
                 raise ValueError("File appeared after the preview; refusing to overwrite.")
             if original is not None and (target.stat().st_nlink != 1 or target.read_bytes() != original):
@@ -143,7 +207,7 @@ class Workspace:
             if self.track_changes and record:
                 from .changes import ChangeStore
                 ChangeStore(self.root).prepare(target.relative_to(self.root).as_posix(), original, fingerprint(data), session_id=getattr(self, "change_session_id", None))
-                self.resolve(target.relative_to(self.root).as_posix())
+                self.resolve(target.relative_to(self.root).as_posix(), operation='write')
                 if original is None and target.exists():
                     raise ValueError('File appeared while saving checkpoint.')
                 if original is not None and (target.stat().st_nlink != 1 or target.read_bytes() != original):
@@ -159,7 +223,7 @@ class Workspace:
                 os.unlink(temporary)
 
     def write_file(self, path, content):
-        target = self.resolve(path)
+        target = self.resolve(path, operation='write')
         if target.exists():
             raise ValueError("File already exists. Read it and use edit_file instead.")
         data = content.encode("utf-8")
@@ -173,7 +237,7 @@ class Workspace:
         return {"status": "created", "path": path}
 
     def edit_file(self, path, old_text, new_text):
-        target = self.resolve(path)
+        target = self.resolve(path, operation='write')
         data, original = self._read(target)
         if target.stat().st_nlink != 1:
             raise ValueError("Hard-linked files cannot be edited.")
@@ -205,7 +269,7 @@ class Workspace:
 
     def replace_lines(self, path, start_line, end_line, new_text, expected_sha256):
         """Line-addressed alternative; still requires a fresh, fully read region."""
-        target = self.resolve(path)
+        target = self.resolve(path, operation='write')
         data, original = self._read(target)
         version = fingerprint(data)
         if expected_sha256 != version or self.read_versions.get(path) != version:
@@ -259,17 +323,16 @@ class Workspace:
         record = records[0]
         if record.get('undone'):
             raise ValueError('This change was already undone.')
-        target = self.resolve(record['path'])
+        target = self.resolve(record['path'], operation='write')
         data, current = self._read(target)
         if target.stat().st_nlink != 1 or fingerprint(data) != record['after_hash']:
             raise ValueError('File changed since this checkpoint. Refusing to overwrite newer work.')
         before = record['before']
-        self.emit(preview_change(record['path'], current, before or ''))
         action = 'Remove newly created file' if before is None else 'Restore previous contents of'
-        if not self.approve(f"{action} {record['path']}? Shell side effects are not undone."):
+        if not self._confirm(target, f"{action} {record['path']}? Shell side effects are not undone.", current, before or ""):
             return {'status': 'declined'}
         if before is None:
-            self.resolve(record['path'])
+            self.resolve(record['path'], operation='write')
             if target.stat().st_nlink != 1 or target.read_bytes() != data:
                 raise ValueError('File changed after undo preview.')
             target.unlink()

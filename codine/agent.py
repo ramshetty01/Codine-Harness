@@ -168,7 +168,7 @@ class Agent:
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
         signatures = Counter()
         loop_detected = False
-        guidance, paths = load_instructions(self.config.project)
+        guidance, paths = load_instructions(self.config.project, authorize=getattr(self, 'authorize_instructions', None))
         guidance = self.redactor.text(guidance)
         if paths:
             self.emit('status', 'Project instructions: ' + ', '.join(paths))

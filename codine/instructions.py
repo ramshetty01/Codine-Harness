@@ -7,7 +7,7 @@ NAMES = ('AGENTS.md', 'CODINE.md')
 LIMIT = 16000
 
 
-def load_instructions(project):
+def load_instructions(project, authorize=None):
     root = Path(project).resolve()
     sections, paths = [], []
     total = 0
@@ -16,6 +16,8 @@ def load_instructions(project):
         if path.is_symlink():
             raise ValueError(f'{name} cannot be a symbolic link.')
         if not path.exists():
+            continue
+        if authorize is not None and authorize(path) is False:
             continue
         descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

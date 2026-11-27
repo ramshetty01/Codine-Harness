@@ -8,7 +8,7 @@ from .task_plan import plan_context
 
 def inspect_context(agent):
     schemas = agent.registry.schemas()
-    guidance, paths = load_instructions(agent.config.project)
+    guidance, paths = load_instructions(agent.config.project, authorize=getattr(agent, 'authorize_instructions', None))
     guidance = agent.redactor.text(guidance + plan_context(agent.session))
     window, output = agent.config.request_limits(agent.session.model)
     report = {'estimate_method': 'conservative UTF-8 byte estimate, not a provider tokenizer',

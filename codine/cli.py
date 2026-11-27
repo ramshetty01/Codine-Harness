@@ -115,8 +115,9 @@ def command(text, agent, workspace, ui):
         workspace.mode = 'plan'
         ui.write('Planning mode: read/search/syntax tools only. Use /permissions ask to enable changes.')
     elif name == '/instructions':
-        guidance, paths = load_instructions(workspace.root)
-        ui.write(guidance or 'No root AGENTS.md or CODINE.md found. Nested instructions are not auto-loaded.')
+        guidance, paths = load_instructions(workspace.root, authorize=lambda path:
+            workspace._authorize_read(workspace.resolve(path.relative_to(workspace.root).as_posix())))
+        ui.write(guidance or 'No permitted root AGENTS.md or CODINE.md loaded. Nested instructions are not auto-loaded.')
     elif name == '/budget':
         if not session.billing:
             ui.write('No OpenRouter ledger yet. It starts before the first OpenRouter request; NVIDIA usage is tokens only.')
@@ -358,6 +359,7 @@ def main(argv=None):
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
+        agent.authorize_instructions = workspace.read_allowed_without_prompt
         agent.jobs = jobs
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
@@ -379,8 +381,8 @@ def main(argv=None):
         ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))
-        if command_policy.rules:
-            ui.write(f'User command policy: {len(command_policy.rules)} rules. /policy explains decisions.')
+        if command_policy.rules or command_policy.file_rules:
+            ui.write(f'User policy: {len(command_policy.rules)} command rules, {len(command_policy.file_rules)} file rules. /policy explains decisions.')
         if not config.api_key:
             ui.write(f'No {config.provider.upper()}_API_KEY configured. Offline commands are available; model requests need a key.')
         one_shot = args.prompt

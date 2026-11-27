@@ -1,9 +1,9 @@
-# User command policy (E6, command layer)
+# User execution and file policy (E6)
 
 Commands ask for approval by default. Optional user rules can allow, ask, or deny
-specific command requests. This milestone covers command execution only: ordinary
-file permissions, core-file approval, plan mode and restart approval keep their
-existing behavior. It is not a complete filesystem permission rules engine.
+specific command requests. Command rules apply to command execution. Optional file rules, described below,
+control harness reads and writes while keeping built-in exclusions, core-file
+approval, planning restrictions, and restart approval intact.
 
 Codine reads `$CODINE_HOME/command-policy.json` if the shell explicitly sets
 `CODINE_HOME`; otherwise it reads `$XDG_CONFIG_HOME/codine/command-policy.json`
@@ -58,7 +58,7 @@ it with its own interpreter path, which is shown in the execution description.
 An allow rule applies only in an interactive terminal. JSON and other
 noninteractive modes downgrade allow to ask, whose approval is denied; rules do
 not create a hidden unattended-execution switch. Planning mode still blocks all
-commands. Rules do not affect the separate core-edit approval path.
+commands. Rules cannot relax the separate core-edit approval path.
 
 Command rules are **not code integrity guarantees**. A project can modify the
 script run by an exact argv, and explicit host allow rules grant that command full
@@ -71,3 +71,71 @@ Explicit CLI policy paths are carried through `/restart` as runtime state. They
 are not trusted from saved session JSON: on a fresh manual `--resume`, select
 `--policy` again if needed. Otherwise the user default policy applies. Sessions
 continue to retain their separate executor/image settings.
+
+## File rules
+
+Version 1 now also accepts an optional `file_rules` array. Existing command-only
+files remain valid. The combined command/file rule count remains at most 128.
+File rules use `id`, `action`, `operation`, `project`, `match`, and `path`:
+
+```json
+{
+  "version": 1,
+  "rules": [],
+  "file_rules": [
+    {
+      "id": "private-notes",
+      "action": "deny",
+      "operation": "read",
+      "project": "/absolute/path/project",
+      "match": "glob",
+      "path": "private/**"
+    },
+    {
+      "id": "generated-notes",
+      "action": "allow",
+      "operation": "write",
+      "project": "/absolute/path/project",
+      "match": "exact",
+      "path": "notes/summary.md"
+    }
+  ]
+}
+```
+
+`operation` is `read` or `write`. Project scope is an exact canonical absolute
+path. `exact` selects one project-relative path. Explicit `glob` patterns use
+segment-aware matching: `*`, `?`, and character classes stay within a path segment;
+`**` matches zero or more directory segments. Thus `src/*.py` excludes deeper
+files, while `src/**/*.py` includes them. Names are case-sensitive, with Unicode
+NFC normalization. Existing paths must use their actual directory-entry spelling;
+case aliases cannot bypass an exact rule on a case-insensitive filesystem.
+
+Deny takes precedence over ask and allow. Unmatched reads retain existing allowed
+behavior. Unmatched writes keep the selected ask/auto-edit mode. An explicit write
+ask always prompts, even in auto-edit mode. An explicit ordinary-file allow skips
+the write prompt only in interactive mode; it still shows the diff and preserves
+read-before-edit, covered-region, size, hardlink and stale-content guards. Core
+files always require approval. Plan mode blocks writes regardless of any rule.
+Credential/internal-path exclusions, symlink restrictions and protection of the
+policy file cannot be relaxed by allow rules.
+
+Read-denied filenames are filtered from listing/search results, and actual reads
+are rejected before file content is opened. Ask-protected filenames can be listed,
+but reading their contents requires approval. Search can therefore prompt when
+it reaches an ask-protected file. Write denial is checked before reading edit
+contents or modifying files; undo uses the same write policy and stale guards.
+Docker staging honors read rules before creating its immutable snapshot, even if
+a command rule would otherwise allow execution automatically. Foreground and
+background commands use this same staging boundary.
+
+`/policy` displays both rule types and the latest decision. These are harness file
+operation rules, not an operating-system sandbox: separately authorized host
+commands can affect host files independently of file tools. Prefer Docker when
+command containment is required.
+
+Automatic root guidance loading also honors read rules: denied and ask-protected
+AGENTS.md/CODINE.md are omitted without prompting on every model turn. The explicit
+`/instructions` command can request approval for ask-protected guidance; denied
+content is never loaded. Already-saved conversation history is not retroactively
+rewritten when a user adds a read-deny rule.

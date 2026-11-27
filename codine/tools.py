@@ -169,6 +169,9 @@ def prepare_docker_command(workspace, argv, files, cwd='.', timeout=30, *, timeo
         raise ValueError(f'Command timeout must be 1–{timeout_ceiling} seconds.')
     executor = copy.copy(workspace.command_executor)
     argv = tuple(argv)
+    files = tuple(files)
+    for name in files:
+        workspace._authorize_read(workspace.resolve(name))
     manifest = snapshot_repository(workspace.root, files)
     # Validate before showing approval and retain these exact immutable bytes.
     try:
