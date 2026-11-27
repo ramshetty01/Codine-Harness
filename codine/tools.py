@@ -11,20 +11,31 @@ from .registry import ToolRegistry, ToolSpec
 from .command_output import OutputEvents
 
 
+def _signal_group(group_id, sig):
+    # A group can disappear while exited children await OS reaping. Retry a
+    # denied signal briefly, but require signal success or ESRCH; EPERM alone
+    # never counts as confirmed cleanup.
+    for attempt in range(11):
+        try:
+            os.killpg(group_id, sig)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            if attempt == 10:
+                raise
+            time.sleep(0.05)
+
+
 def stop_process(process):
     # Kill the whole process group, including children holding output pipes open.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    signalled = _signal_group(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=0.3)
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if signalled:
+        _signal_group(process.pid, signal.SIGKILL)
     process.wait()
 
 

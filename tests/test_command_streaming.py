@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from codine.command_output import OutputEvents
 from codine.config import Redactor
@@ -76,6 +76,19 @@ time.sleep(60)
         self.assertEqual(result['exit_code'],0)
         time.sleep(1.1)
         self.assertFalse((self.root/'background').exists())
+
+    def test_denied_cleanup_signal_retries_but_never_claims_unconfirmed_success(self):
+        from codine.tools import stop_process
+        process = Mock(pid=123)
+        with patch('codine.tools.os.killpg', side_effect=[None, PermissionError('transient'), ProcessLookupError()]), \
+             patch('codine.tools.time.sleep') as sleep:
+            stop_process(process)
+            sleep.assert_called_once_with(0.05)
+        with patch('codine.tools.os.killpg', side_effect=[None] + [PermissionError('denied')] * 11), \
+             patch('codine.tools.time.sleep') as sleep:
+            with self.assertRaises(PermissionError):
+                stop_process(process)
+            self.assertEqual(sleep.call_count, 10)
 
     def test_utf8_and_split_secret_redaction_for_terminal_and_json(self):
         secret='example-private-token'
