@@ -87,3 +87,35 @@ Inspect `git status` before staging. Avoid `git add -A` when unrelated work or c
 ## Recover one file-tool change
 
 In an interactive Codine session, use `/changes`, then `/diff ID`, then `/undo ID`. Omit the ID for the latest checkpoint. Review the diff and approve only the intended restoration. The file must still match the recorded after-image; otherwise Codine refuses the undo. `/undo` does not restore shell side effects, and it does not replace Git recovery. It can recover file-tool changes across restarts while `.codine/changes/` remains intact. A checkpoint written immediately before a failed/crashed write may exist without an applied change; the hash guard will refuse a mismatched state.
+
+## Private diagnostics and session compatibility
+
+Create a local diagnostic without copying conversation or file contents:
+
+```bash
+python -m codine.diagnostics --project . --session SESSION_ID --category persistence
+```
+
+Omit `--session` for runtime metadata only. Categories are authentication,
+rate_limit, connection, persistence, invalid_session, unsupported_version and
+unknown. The bundle contains fixed recovery guidance, runtime versions and session
+counts/boolean journal status. It excludes keys, environment, project paths,
+model names, prompts, tool arguments, raw exceptions and source contents. Files
+are created with mode 0600 under `.codine/diagnostics`; no upload occurs. Review
+metadata before sharing. Malformed or future-version sessions are classified
+without modifying them, and output symlinks are refused.
+
+Sessions currently use schema version 1 with optional fields for additive
+features. Keep a separate private backup of `.codine` before upgrading or
+attempting recovery. Missing optional fields use their documented defaults;
+unknown future versions are rejected rather than guessed at. There is no general
+cross-version migration command yet: use the matching Codine release to read a
+newer session or start a new session while preserving the original. Never change
+the version number manually to bypass validation.
+
+For uncertain tool outcomes, inspect files before reissuing the action. For an
+uncertain provider charge, reconcile the provider's actual bill before continuing;
+restarting or restoring a conversation must not be used to erase a pending charge.
+For full disk/write failures, free space or correct permissions before saving,
+and retain the last intact session. Diagnostics do not repair corrupt snapshots
+or replay tools. Git restores code, not conversation state or billing records.
