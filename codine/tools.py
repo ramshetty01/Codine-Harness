@@ -26,6 +26,32 @@ def stop_process(process):
     process.wait()
 
 
+def approve_command(workspace, executor, argv, cwd, description):
+    if workspace.mode == 'plan':
+        raise ValueError('Commands are disabled in planning mode.')
+    policy = getattr(workspace, 'command_policy', None)
+    if policy is None:
+        return workspace.approve(description)
+    decision = policy.decide(executor=executor, project=workspace.root, cwd=cwd,
+                             argv=argv, interactive=getattr(workspace, 'policy_interactive', False))
+    workspace.last_policy_decision = decision
+    workspace.emit('Policy: ' + decision.reason)
+    if decision.action == 'deny':
+        return False
+    if decision.action == 'allow':
+        # Still show the exact command/snapshot being authorized by this rule.
+        workspace.emit(description)
+        return True
+    return workspace.approve(description + '\nPolicy: ' + decision.reason)
+
+
+def command_rejection(workspace):
+    decision = getattr(workspace, 'last_policy_decision', None)
+    denied = decision is not None and decision.action == 'deny'
+    return {'status': 'denied' if denied else 'declined', 'exit_code': None,
+            'stdout': '', 'stderr': '', 'reason': decision.reason if decision else 'Approval declined.'}
+
+
 def run_command(workspace, argv, cwd='.', timeout=30):
     if not argv or len(argv) > 100 or any(not isinstance(arg, str) or '\x00' in arg for arg in argv):
         raise ValueError('Provide 1–100 command arguments, with no null bytes.')
@@ -34,12 +60,13 @@ def run_command(workspace, argv, cwd='.', timeout=30):
         raise ValueError('Command directory does not exist.')
     if not 1 <= timeout <= 120:
         raise ValueError('Command timeout must be 1–120 seconds.')
+    policy_argv = tuple(argv)
     argv = list(argv)
     if argv[0] in ('python', 'python3'):
         argv[0] = sys.executable
     description = f'Run {shlex.join(argv)}\nWorking directory: {directory}\nTimeout: {timeout}s\nThis runs with your user permissions, outside a sandbox. Approve?'
-    if not workspace.approve(description):
-        return {'status': 'declined', 'exit_code': None, 'stdout': '', 'stderr': ''}
+    if not approve_command(workspace, 'host', policy_argv, directory.relative_to(workspace.root).as_posix(), description):
+        return command_rejection(workspace)
     # Do not forward provider credentials. Programs can still read the filesystem.
     env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SYSTEMROOT') if key in os.environ}
     env['PYTHONUNBUFFERED'] = '1'
@@ -110,8 +137,8 @@ def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
                    f'Image: {executor.image}\nTimeout: {timeout}s\n'
                    f'Snapshot SHA256: {manifest.digest}\nSelected files:\n{listing}\n'
                    'No host mounts, no network; only this snapshot enters the container. Approve?')
-    if not workspace.approve(description):
-        return {'status': 'declined', 'exit_code': None, 'stdout': '', 'stderr': ''}
+    if not approve_command(workspace, 'docker', argv, cwd, description):
+        return command_rejection(workspace)
     executor.timeout = timeout
     try:
         return executor.execute(manifest, argv, cwd=cwd)

@@ -214,3 +214,5 @@ image-provided environment values cannot flow into candidate execution.
 
 Prepared custom images must contain `/usr/bin/env` and Python on the fixed PATH
 for the bootstrap, in addition to any tools required by the selected command.
+
+Command approval can additionally use explicit user-owned [command policy rules](COMMAND_POLICY.md). Default behavior remains ask; deny rules take precedence, and noninteractive allow rules cannot bypass approval denial.

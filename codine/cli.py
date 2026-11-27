@@ -23,6 +23,7 @@ HELP = '''Commands
   /help                 Show this guide
   /plan                 Enter read-only planning; /permissions ask exits
   /sandbox              Inspect effective command isolation and image
+  /policy               Show user command rules and last explained decision
   /instructions         Show loaded root project guidance
   /budget               Show session spending; reconcile AMOUNT if unknown
   /paste                Read multiple lines until /end (fallback for paste)
@@ -39,7 +40,7 @@ HELP = '''Commands
   /diff [ID]            Compare checkpoint with the current file
   /undo [ID]            Preview and restore one file-tool change
   /thinking             Toggle display of reasoning (generation unchanged)
-  /permissions MODE     ask or auto-edit; commands/core edits still ask
+  /permissions MODE     ask or auto-edit; commands use /policy, core edits ask
   exit, /quit           Save and quit
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
@@ -59,6 +60,7 @@ def parser():
     result.add_argument('--provider', choices=('nvidia', 'openrouter'))
     result.add_argument('--model', help='Explicit model ID for the selected provider')
     result.add_argument('--executor', choices=('host', 'docker'), help='Command executor; resume retains saved choice, new sessions default host')
+    result.add_argument('--policy', help='Explicit user-owned command policy JSON; project files are never auto-loaded')
     result.add_argument('--image', help='Locally installed Docker image; resolved to an immutable image ID')
     result.add_argument('--plan', action='store_true', help='Read-only tools; no commands, edits, or model-requested restart')
     result.add_argument('--json', action='store_true', help='One-shot JSONL event output; approvals denied')
@@ -90,6 +92,12 @@ def command(text, agent, workspace, ui):
     session = agent.session
     if name == '/help':
         ui.write(HELP)
+    elif name == '/policy':
+        policy = getattr(workspace, 'command_policy', None)
+        ui.write(policy.describe() if policy else 'No command rules; commands require approval.')
+        decision = getattr(workspace, 'last_policy_decision', None)
+        if decision:
+            ui.write('Last decision: ' + decision.reason)
     elif name == '/sandbox':
         ui.write(execution_status(workspace))
     elif name == '/plan':
@@ -199,7 +207,7 @@ def command(text, agent, workspace, ui):
     elif name == '/permissions':
         if argument not in ('ask', 'auto-edit', 'plan'):
             raise ValueError('Usage: /permissions ask|auto-edit|plan')
-        if argument == 'auto-edit' and not ui.approve('Enable automatic ordinary file edits for this process? Core edits and commands still require approval.'):
+        if argument == 'auto-edit' and not ui.approve('Enable automatic ordinary file edits for this process? Core edits still require approval; commands follow /policy.'):
             return
         workspace.mode = argument
         ui.write('Permissions: ' + argument)
@@ -227,6 +235,8 @@ def main(argv=None):
     store = provider = None
     ui = JsonTerminal(Redactor()) if args.json else Terminal(Redactor())
     try:
+        from .command_policy import CommandPolicy
+        command_policy = CommandPolicy.load(args.policy)
         config = Config.load(args.project, provider=args.provider, model=args.model)
         redactor = Redactor.environment()
         ui.redactor = redactor
@@ -260,13 +270,19 @@ def main(argv=None):
         provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
         workspace.command_executor = command_executor
+        workspace.command_policy = command_policy
+        workspace.policy_interactive = ui.interactive
+        workspace.protected_paths = {command_policy.source.resolve()}
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
+        agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
         ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))
+        if command_policy.rules:
+            ui.write(f'User command policy: {len(command_policy.rules)} rules. /policy explains decisions.')
         if not config.api_key:
             ui.write(f'No {config.provider.upper()}_API_KEY configured. Offline commands are available; model requests need a key.')
         one_shot = args.prompt

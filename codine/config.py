@@ -40,9 +40,18 @@ class Config:
         project = Path(project).resolve()
         if not project.is_dir():
             raise ValueError("Project must be an existing directory.")
-        load_dotenv(CONFIG_ROOT / ".env")
-        if project != CONFIG_ROOT:
-            load_dotenv(project / ".env")
+        # Trust roots belong to the invoking user's shell, never project .env.
+        roots = {key: os.environ.get(key) for key in ('HOME', 'CODINE_HOME', 'XDG_CONFIG_HOME')}
+        try:
+            load_dotenv(CONFIG_ROOT / ".env")
+            if project != CONFIG_ROOT:
+                load_dotenv(project / ".env")
+        finally:
+            for key, value in roots.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
         values = {}
         for key, env, default, maximum in (
             ("max_tokens", "CODINE_MAX_TOKENS", 4096, 131072),

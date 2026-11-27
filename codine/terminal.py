@@ -17,6 +17,8 @@ COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
+    '/context': 'Inspect active context and budget',
+    '/policy': 'Explain user command rules',
     '/sandbox': 'Inspect command isolation',
     '/help': 'Explore commands', '/paste': 'Write a multiline task',
     '/session': 'Current session details', '/sessions': 'Browse saved sessions',

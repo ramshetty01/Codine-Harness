@@ -47,6 +47,8 @@ class Workspace:
             current = current / part
             if current.is_symlink():
                 raise ValueError("Symbolic links are not allowed.")
+        if current.resolve() in getattr(self, 'protected_paths', set()):
+            raise ValueError('User command policy is protected from model file tools; edit it outside Codine.')
         if not current.resolve().is_relative_to(self.root):
             raise ValueError("Path escapes the project.")
         if not directory and current.is_dir():

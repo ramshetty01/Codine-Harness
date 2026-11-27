@@ -43,6 +43,8 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
             if not execution.get('image'):
                 raise ValueError('Missing Docker image; restart cancelled.')
             argv.extend(['--image', execution['image']])
+    if getattr(agent, 'command_policy_path', None):
+        argv.extend(['--policy', agent.command_policy_path])
     if plan:
         argv.append('--plan')
     agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')
