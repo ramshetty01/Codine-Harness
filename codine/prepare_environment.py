@@ -15,6 +15,7 @@ import time
 import uuid
 
 from .paths import STATE_ROOT
+from .staging import StagingError, _read_file
 
 VERSION = 1
 CLEAN_ENTRYPOINT = ["/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp"]
@@ -44,22 +45,13 @@ def selected_files(project, paths):
             target /= part
             if target.is_symlink():
                 raise PreparationError('Dependency manifests cannot contain symlinks.')
-        # Open components relative to held directory descriptors to reject symlink races.
-        directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            for part in path.parts[:-1]:
-                child_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
-                os.close(directory_fd)
-                directory_fd = child_fd
-            file_fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
-            with os.fdopen(file_fd, 'rb') as source:
-                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-                    raise PreparationError('Dependency manifests must be regular files.')
-                data = source.read(262145)
-            if len(data) > 262144:
-                raise PreparationError('Dependency manifest exceeds 256 KB.')
+            data = _read_file(root_fd, path.parts, 262144)
+        except (StagingError, OSError) as error:
+            raise PreparationError('Dependency file rejected: ' + str(error)) from error
         finally:
-            os.close(directory_fd)
+            os.close(root_fd)
         try:
             text = data.decode('utf-8')
         except UnicodeError as error:
@@ -143,6 +135,73 @@ class EnvironmentPreparer:
         if not self.docker:
             raise PreparationError('Docker is required; no host fallback.')
 
+    def cache_directory(self, create=False):
+        """Walk an absolute path without following symlinks, holding the final fd."""
+        path = self.cache.absolute()
+        if '..' in path.parts:
+            raise PreparationError('Cache directory must not contain traversal.')
+        directory = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in path.parts[1:]:
+                if create:
+                    try:
+                        os.mkdir(part, 0o700, dir_fd=directory)
+                    except FileExistsError:
+                        pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            result, directory = directory, None
+            return result
+        except FileNotFoundError:
+            if not create:
+                return None
+            raise
+        except OSError as error:
+            raise PreparationError('Cache directory must contain real directories, not symlinks.') from error
+        finally:
+            if directory is not None:
+                os.close(directory)
+
+    def read_receipt(self, name):
+        directory = self.cache_directory()
+        if directory is None:
+            return None
+        try:
+            try:
+                # Shared staging reader also rejects receipt hardlinks and changes during read.
+                return _read_file(directory, (name,), 65536).decode('utf-8')
+            except FileNotFoundError:
+                return None
+            except (OSError, StagingError, UnicodeError) as error:
+                raise PreparationError('Cache receipt must be a stable private regular file, not a link.') from error
+        finally:
+            os.close(directory)
+
+    def write_receipt(self, name, text):
+        directory = self.cache_directory(create=True)
+        temporary = name + '.' + uuid.uuid4().hex + '.tmp'
+        try:
+            try:
+                target = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                if not stat.S_ISREG(target.st_mode) or target.st_nlink != 1:
+                    raise PreparationError('Refusing linked or non-regular cache receipt.')
+            except FileNotFoundError:
+                pass
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o600, dir_fd=directory)
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+                output.write(text)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+            os.close(directory)
+
     def control(self, args, **kwargs):
         return self.run([self.docker, *args], **kwargs)
 
@@ -174,10 +233,11 @@ class EnvironmentPreparer:
                     'files': manifest,
                     'command_sha256': hashlib.sha256(json.dumps(command, separators=(',', ':')).encode()).hexdigest(), 'network': 'bridge' if allow_network else 'none'}
         key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        receipt = self.cache / (key + '.json')
-        if receipt.is_file():
+        receipt_name = key + '.json'
+        saved_text = self.read_receipt(receipt_name)
+        if saved_text is not None:
             try:
-                saved = json.loads(receipt.read_text())
+                saved = json.loads(saved_text)
                 if not isinstance(saved, dict):
                     raise PreparationError('Invalid cached receipt.')
                 if not re.fullmatch(r'sha256:[0-9a-f]{64}', saved.get('image', '')):
@@ -214,13 +274,7 @@ class EnvironmentPreparer:
             if not prepared_identity_matches(info, key):
                 raise PreparationError('Committed image identity label did not match.')
             saved = {'key': key, 'image': info['Id'], 'identity': identity}
-            self.cache.mkdir(parents=True, exist_ok=True)
-            temporary = self.cache / (key + '.' + uuid.uuid4().hex + '.tmp')
-            try:
-                temporary.write_text(json.dumps(saved, indent=2) + '\n')
-                os.replace(temporary, receipt)
-            finally:
-                temporary.unlink(missing_ok=True)
+            self.write_receipt(receipt_name, json.dumps(saved, indent=2) + '\n')
             successful = True
             return {**saved, 'cached': False}
         finally:

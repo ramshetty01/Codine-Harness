@@ -6,6 +6,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from codine.prepare_environment import CLEAN_ENTRYPOINT, EnvironmentPreparer, PreparationError, archive, bounded_run, selected_files
 
@@ -43,7 +44,7 @@ class PreparationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         (self.root / 'requirements.lock').write_text('# explicit empty stdlib environment\n')
         self.fake = FakeDocker()
         self.preparer = EnvironmentPreparer(self.root / 'cache', self.fake, 'docker')
@@ -120,6 +121,62 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaises(PreparationError):
             selected_files(self.root, ['requirements.lock'])
 
+    def test_manifest_hardlink_alias_of_secret_is_rejected(self):
+        secret = self.root / '.env'
+        secret.write_text('private-value-without-a-recognized-key-name')
+        os.link(secret, self.root / 'requirements.txt')
+        with self.assertRaisesRegex(PreparationError, 'hard link'):
+            selected_files(self.root, ['requirements.txt'])
+
+    def test_manifest_change_during_read_is_rejected(self):
+        original_read = os.read
+        changed = False
+        def changing_read(descriptor, count):
+            nonlocal changed
+            data = original_read(descriptor, count)
+            if not changed:
+                changed = True
+                (self.root / 'requirements.lock').write_text('# changed during read; different size\n')
+            return data
+        with patch('codine.staging.os.read', side_effect=changing_read):
+            with self.assertRaisesRegex(PreparationError, 'changed while staging'):
+                selected_files(self.root, ['requirements.lock'])
+
+    def test_cache_directory_and_ancestor_symlinks_are_rejected(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (self.root / 'cache').symlink_to(outside, target_is_directory=True)
+        for cache in (self.root / 'cache', self.root / 'cache' / 'nested'):
+            self.preparer.cache = cache
+            with self.assertRaisesRegex(PreparationError, 'symlinks'):
+                self.prepare()
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse(any(args[1] == 'create' for args, _ in self.fake.calls))
+
+    def test_cache_receipt_symlink_is_rejected_without_touching_target(self):
+        result = self.prepare()
+        receipt = self.root / 'cache' / (result['key'] + '.json')
+        outside = self.root / 'private.json'
+        outside.write_bytes(receipt.read_bytes())
+        before = outside.read_bytes()
+        receipt.unlink()
+        receipt.symlink_to(outside)
+        with self.assertRaisesRegex(PreparationError, 'not a link'):
+            self.prepare()
+        with self.assertRaisesRegex(PreparationError, 'linked'):
+            self.preparer.write_receipt(receipt.name, '{}')
+        self.assertEqual(outside.read_bytes(), before)
+
+    def test_receipts_are_private_even_with_permissive_umask(self):
+        previous = os.umask(0)
+        try:
+            result = self.prepare()
+        finally:
+            os.umask(previous)
+        receipt = self.root / 'cache' / (result['key'] + '.json')
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(receipt.parent.stat().st_mode & 0o777, 0o700)
+
     def test_archive_contains_only_selected_regular_files(self):
         data = archive(selected_files(self.root, ['requirements.lock']))
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
@@ -140,7 +197,7 @@ class RealPreparationTests(unittest.TestCase):
         from codine.sandbox import DockerSandbox
         base = DockerSandbox().image
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / 'requirements.lock').write_text('# stdlib-only preparation test\n')
             preparer = EnvironmentPreparer(root / 'cache')
             command = ['python', '-c',
