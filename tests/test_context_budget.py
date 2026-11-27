@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import copy
 import json
 import os
@@ -59,9 +60,7 @@ class ContextBudgetTests(unittest.TestCase):
         provider = OpenRouterProvider(config)
         config.api_key = 'offline'
         provider.client = Mock()
-        message = Mock()
-        message.model_dump.return_value = {'role': 'assistant', 'content': 'ok'}
-        provider.client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason='stop')], usage=None)
+        provider.client.chat.completions.create.return_value = nullcontext([{'choices':[{'index':0,'delta':{'content':'ok'},'finish_reason':'stop'}]}])
         provider.complete([], [], 'small', lambda *args: None)
         self.assertEqual(provider.client.chat.completions.create.call_args.kwargs['max_tokens'], 200)
 

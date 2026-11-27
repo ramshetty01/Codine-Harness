@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 """Offline tests of policy, compatibility, spending, and automation boundaries."""
 import copy
 import io
@@ -155,9 +156,7 @@ class FoundationsTests(unittest.TestCase):
 
     def test_openrouter_request_has_no_nvidia_parameters(self):
         self.config.api_key='mock-key'
-        message=MagicMock()
-        message.model_dump.return_value={'role':'assistant','content':'hello','reasoning_details':[{'type':'reasoning.encrypted','data':'opaque'}]}
-        response=SimpleNamespace(choices=[SimpleNamespace(message=message,finish_reason='stop')],usage=SimpleNamespace(cost=0.001))
+        response=nullcontext([{'id':'r','choices':[{'index':0,'delta':{'content':'hello','reasoning_details':[{'type':'reasoning.encrypted','data':'opaque'}]},'finish_reason':'stop'}],'usage':SimpleNamespace(cost=0.001)}])
         with patch('codine.provider.OpenAI') as client:
             client.return_value.chat.completions.create.return_value=response
             provider=OpenRouterProvider(self.config)
@@ -165,7 +164,7 @@ class FoundationsTests(unittest.TestCase):
             request=client.return_value.chat.completions.create.call_args.kwargs
             self.assertEqual(client.call_args.kwargs['base_url'],'https://openrouter.ai/api/v1')
             self.assertEqual(request['extra_body'],{'provider':{'require_parameters':True}})
-            self.assertFalse(request['stream'])
+            self.assertTrue(request['stream'])
             self.assertEqual(reply['reasoning_details'][0]['data'],'opaque')
             provider.close()
 
