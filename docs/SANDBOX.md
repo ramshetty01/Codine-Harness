@@ -132,3 +132,53 @@ The existing Python evaluator now uses this reader while retaining its stricter
 E2 does **not** enable general Docker commands, dependency installs, network
 access, write-back from containers, or sandbox the terminal's host command tool.
 Those require separate executor and review policy work.
+
+### Repository test and build commands (E3)
+
+`RepositoryExecutor` runs an explicit argument vector against a staged snapshot:
+
+```python
+from codine.staging import snapshot_repository
+from codine.repository_executor import RepositoryExecutor
+
+snapshot = snapshot_repository(project_root, ["app.py", "tests/test_app.py"])
+result = RepositoryExecutor(timeout=20).execute(
+    snapshot,
+    ["python", "-m", "unittest", "discover", "-s", "tests", "-v"],
+    cwd=".", env={"CI": "1"},
+)
+print(result["status"], result["exit_code"])
+print(result["stdout"], result["stderr"])
+```
+
+The command runs under `/tmp/project`; `cwd` must name a directory created by the
+manifest. Arguments are passed directly, without an implicit shell. The command
+can run a build tool only if that tool is already in the explicitly selected local
+image. The default Python image supports standard-library tests and Python build
+steps; this does not provide package installation or download dependencies.
+
+The executor inherits Docker's network isolation, read-only root, non-root user,
+resource caps, no mounts, fixed local image ID, output bound and timeout cleanup.
+Input contains only selected files, argv, cwd and permitted environment settings.
+No host environment variables are forwarded. The command environment starts with
+fixed `PATH`, `HOME`, `LANG`, `TMPDIR`, plus optional `CI`,
+`PYTHONDONTWRITEBYTECODE`, `PYTHONHASHSEED`, `NO_COLOR`, `TERM`, and `TZ` values.
+Staged files are private writable text files in the disposable tmpfs; build
+artifacts vanish with the container and are not written back to the repository.
+Stdin is `/dev/null`, so interactive prompts are unsupported. The temporary
+filesystem remains `noexec`: interpreted scripts work, but freshly compiled
+native binaries cannot execute there. Builds must fit the existing 16-MB tmpfs
+and resource limits; large/native dependency-heavy builds remain unsupported.
+
+Results contain separate bounded stdout/stderr, actual attached-process exit
+status, execution status, elapsed seconds, image ID, manifest digest, argv and cwd.
+`status="completed"` means the process exited, **not** that tests passed: check
+`exit_code == 0` and the intended test assertions. `timeout` and `output_limit`
+mean execution was terminated; their exit codes describe the killed Docker client
+and must not be treated as candidate success. Logs are untrusted command output.
+The executor forcibly removes its uniquely named container in `finally`, including
+interrupts; failure to confirm cleanup raises an explicit error.
+
+This is an execution API with real Docker boundary tests, not yet the normal
+interactive `/run` tool. Interactive approvals, policy and workspace review remain
+E1. No fallback to host execution or paid inference is used.

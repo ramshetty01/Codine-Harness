@@ -113,9 +113,26 @@ class DockerSandbox:
         return self._evaluate_payload({'files': files, 'entrypoint': entrypoint, 'inputs': inputs})
 
     def _evaluate_payload(self, data):
+        result = self._run_payload(data)
+        stdout, stderr = result.pop('stdout'), result.pop('stderr')
+        result['diagnostic'] = stderr[-1500:]
+        if result['status'] == 'completed' and result['exit_code'] == 0:
+            try:
+                message = json.loads(stdout)
+                if not isinstance(message, dict) or set(message) != {'values'} or not isinstance(message['values'], list):
+                    raise ValueError('Invalid candidate result shape')
+                result['values'] = message['values']
+            except ValueError:
+                result['status'] = 'invalid_output'
+        elif result['status'] == 'completed':
+            result['status'] = 'candidate_error'
+            result['diagnostic'] += stdout[-1500:]
+        return result
+
+    def _run_payload(self, data, payload_limit=256000):
         payload = json.dumps(data, allow_nan=False).encode()
-        if len(payload) > 256000:
-            raise SandboxError('Evaluation input exceeds 256 KB.')
+        if len(payload) > payload_limit:
+            raise SandboxError('Sandbox input exceeds serialized payload limit.')
         name = 'codine-eval-' + uuid.uuid4().hex
         started = time.monotonic()
         process = None
@@ -159,18 +176,7 @@ class DockerSandbox:
             process.wait(timeout=5)
             decoded = {key: value.decode('utf-8', errors='replace') for key, value in output.items()}
             result = {'status': status, 'exit_code': process.returncode, 'seconds': round(time.monotonic()-started, 3),
-                      'image': self.image, 'diagnostic': decoded['stderr'][-1500:]}
-            if status == 'completed' and process.returncode == 0:
-                try:
-                    message = json.loads(decoded['stdout'])
-                    if not isinstance(message, dict) or set(message) != {'values'} or not isinstance(message['values'], list):
-                        raise ValueError('Invalid candidate result shape')
-                    result['values'] = message['values']
-                except ValueError:
-                    result['status'] = 'invalid_output'
-            elif status == 'completed':
-                result['status'] = 'candidate_error'
-                result['diagnostic'] += decoded['stdout'][-1500:]
+                      'image': self.image, **decoded}
             return result
         finally:
             if process:
