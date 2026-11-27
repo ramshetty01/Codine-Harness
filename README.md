@@ -8,6 +8,8 @@ The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVEL
 
 ## Start
 
+For explicit Docker dependency preparation and reusable image IDs, see **[Prepared environments](docs/PREPARED_ENVIRONMENTS.md)**.
+
 For the automated Python/OS test matrix, see **[CI](docs/CI.md)**.
 
 For a standalone wheel, `codine --version`, upgrades, and uninstall instructions, see **[Installation](docs/INSTALLATION.md)**. The checkout workflow below remains supported.

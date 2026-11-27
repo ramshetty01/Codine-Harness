@@ -104,6 +104,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/scripts/offline_guard
         run: |
           python -m unittest discover -s tests -p test_sandbox.py -v
+          python -m unittest discover -s tests -p test_prepare_environment.py -v
           python -m unittest discover -s tests -p test_repository_evals.py -v
           python -m unittest discover -s tests -p test_repository_executor.py -v
       - name: Docker repository evaluation
