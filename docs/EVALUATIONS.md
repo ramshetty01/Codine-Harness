@@ -177,3 +177,10 @@ evaluation identity.
 public-only solution fails final grading, hidden input/answer/reference canaries
 never enter requests or workspace files, and invalid fixtures cannot start model
 traffic. No API credits are needed for these checks.
+
+Live reports also include a `metrics` object that distinguishes selected,
+attempted, failed and unattempted tasks. Pending charges make cost-per-solve
+unknown instead of presenting known spend as a complete cost. Missing intervention
+and incorrect-edit counters remain explicitly unknown; failed tasks are not
+silently counted as incorrect edits. Full annotation and live comparison evidence
+remain required for Q5 completion.

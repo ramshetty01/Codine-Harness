@@ -14,6 +14,7 @@ from .config import Config, Redactor
 from .paths import eval_resource, STATE_ROOT
 from .provenance import evaluation_manifest
 from .eval_budget import EvaluationBudget
+from .eval_metrics import summarize_results
 from .evals import grade, task_cases
 from .provider import OpenRouterProvider
 from .registry import ToolSpec
@@ -65,7 +66,8 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
         validate_files(files, 'task.py')
         for name, content in files.items():
             path = root / name
-            path.parent.mkdir(parents=True, exist_ok=True)
+            report['metrics'] = summarize_results(report['results'], report['selected_tasks'], report['cost_usd'], report['pending_usd'])
+        path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         # Do not instantiate ScriptedProvider or pass reference edits into model context.
         config = replace(base_config, project=root)
@@ -172,6 +174,7 @@ def main(argv=None):
         report['cost_per_solved_usd'] = str(money(report['cost_usd']) / report['passed']) if report['passed'] else None
         report['requests'] = sum(r['requests'] for r in report['results'])
         report['tool_failures'] = sum(r['tool_failures'] for r in report['results'])
+        report['metrics'] = summarize_results(report['results'], report['selected_tasks'], report['cost_usd'], report['pending_usd'])
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(report, indent=2) + '\n')
