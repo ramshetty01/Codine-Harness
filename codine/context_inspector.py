@@ -3,22 +3,23 @@ from collections import Counter
 import json
 from .context import project_context, estimate_tokens, ContextLimitError
 from .instructions import load_instructions
+from .task_plan import plan_context
 
 
 def inspect_context(agent):
     schemas = agent.registry.schemas()
     guidance, paths = load_instructions(agent.config.project)
-    guidance = agent.redactor.text(guidance)
+    guidance = agent.redactor.text(guidance + plan_context(agent.session))
     window, output = agent.config.request_limits(agent.session.model)
     report = {'estimate_method': 'conservative UTF-8 byte estimate, not a provider tokenizer',
               'instructions': paths, 'project_instruction_characters': len(guidance),
-              'archive_messages': len(agent.session.messages), 'summary': 'No semantic summary is stored.',
+              'archive_messages': len(agent.session.messages), 'summary': (f'Semantic summary covers archive before message {agent.session.summary_end}; source archive retained.' if agent.session.context_summary else 'No semantic summary is stored.'),
               'schema_count': len(schemas), 'schema_characters': len(json.dumps(schemas, ensure_ascii=False)),
               'local_context_limit': window, 'output_reserved': output,
               'character_limit': agent.config.context_chars}
     try:
         messages, start = project_context(agent.session, schemas, agent.config.context_chars, guidance,
-                                         token_budget=window, output_tokens=output)
+                                         token_budget=window, output_tokens=output, allow_trim=False)
     except ContextLimitError as error:
         report.update(status='over_limit', explanation=str(error), estimated_remaining=None)
         return report

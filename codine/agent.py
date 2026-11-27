@@ -4,8 +4,10 @@ import json
 from collections import Counter
 from .instructions import load_instructions
 from .budget import Budget, BudgetError
-from .context import project_context, estimate_tokens
+from .context import (project_context, estimate_tokens, ContextLimitError,
+                      compaction_boundary, parse_summary, evidence_for)
 from .sessions import validate_messages
+from .task_plan import plan_context
 
 SYSTEM = '''You are Codine, a practical Python terminal coding assistant. Reply in English.
 Use tools to inspect the actual workspace, implement requested changes, and verify them.
@@ -53,6 +55,50 @@ class Agent:
         self.emit('run_end', {'outcome': outcome, 'session': self.session.id})
         return outcome
 
+    def complete(self, messages, schemas, ledger, emit=None):
+        """Normal and summary calls use exactly the same accounting boundary."""
+        if ledger:
+            ledger.reserve()
+            self.save()
+        reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, emit or self.emit)
+        if ledger:
+            cost = getattr(usage, 'cost', None) if usage else None
+            if cost is None:
+                raise BudgetError('Provider omitted request cost. Reservation retained; reconcile with /budget before continuing.')
+            blocked = ledger.settle(cost)
+            self.save()
+            self.emit('status', ledger.summary())
+            if blocked:
+                raise BudgetError(blocked)
+        if usage:
+            for key, attr in (('input', 'prompt_tokens'), ('output', 'completion_tokens'), ('total', 'total_tokens')):
+                self.session.usage[key] += getattr(usage, attr, 0) or 0
+            self.save()
+        return self.redactor.data(reply), finish, usage
+
+    def compact_context(self, ledger, window, output, guidance, schemas):
+        import copy
+        plan = self.redactor.text(plan_context(self.session))
+        end, request = compaction_boundary(self.session, self.config.context_chars, window, output, plan)
+        self.emit('status', 'Summarizing complete conversation groups with one bounded provider request…')
+        reply, finish, _ = self.complete(request, [], ledger, emit=lambda *args: None)
+        summary = parse_summary(reply, finish)
+        candidate = copy.copy(self.session)
+        start = max(self.session.context_start, self.session.summary_end)
+        previous = self.session.context_summary.get('evidence', []) if self.session.summary_end > self.session.context_start else []
+        candidate.context_summary = {'summary': summary, 'evidence': evidence_for(self.session.messages[start:end], previous)}
+        candidate.summary_end = end
+        active_user = max(i for i, message in enumerate(self.session.messages) if message['role'] == 'user')
+        candidate.summary_user = active_user if active_user < end else None
+        # Failure leaves the prior context metadata intact. Never recursively summarize.
+        projected = project_context(candidate, schemas, self.config.context_chars, guidance,
+                                    token_budget=window, output_tokens=output, allow_trim=False)
+        self.session.context_summary = candidate.context_summary
+        self.session.summary_end = candidate.summary_end
+        self.session.summary_user = candidate.summary_user
+        self.save()
+        return projected
+
     def run_turn(self, text):
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
         signatures = Counter()
@@ -73,35 +119,24 @@ class Agent:
         for step in range(self.config.max_steps):
             window, output = self.config.request_limits(self.session.model)
             schemas = self.registry.schemas()
-            messages, start = project_context(self.session, schemas, self.config.context_chars, guidance,
-                                              token_budget=window, output_tokens=output)
+            context_guidance = guidance + self.redactor.text(plan_context(self.session))
+            try:
+                messages, start = project_context(self.session, schemas, self.config.context_chars, context_guidance,
+                                                  token_budget=window, output_tokens=output, allow_trim=False)
+            except ContextLimitError:
+                messages, start = self.compact_context(ledger, window, output, context_guidance, schemas)
             self.emit('status', f'Context estimate {estimate_tokens(messages, schemas)} tokens + {output} output reserved / {window} local limit (byte estimate, not exact).')
             if start > self.session.context_start:
                 self.emit('status', f'Context includes recent complete turns from message {start}; older turns remain saved.')
             self.emit('status', f'Model step {step + 1}/{self.config.max_steps} …')
             started = time.monotonic()
-            if ledger:
-                ledger.reserve()
-                self.save()  # Uncertain or interrupted requests keep this reservation.
-            reply, finish, usage = self.provider.complete(messages, self.registry.schemas(), self.session.model, self.emit)
-            if ledger:
-                cost = getattr(usage, 'cost', None) if usage else None
-                if cost is None:
-                    raise BudgetError('Provider omitted request cost. Reservation retained; reconcile with /budget before continuing.')
-                blocked = ledger.settle(cost)
-                self.save()
-                self.emit('status', ledger.summary())
-                if blocked:
-                    raise BudgetError(blocked)
+            reply, finish, usage = self.complete(messages, schemas, ledger)
             self.emit('end_stream', '')
             reply = self.redactor.data(reply)
             calls = reply.get('tool_calls', [])
             # Validate the entire assistant batch before even journaling an action.
             placeholders = [{'role': 'tool', 'tool_call_id': call['id'], 'content': ''} for call in calls]
             validate_messages(self.session.messages + [reply] + placeholders)
-            if usage:
-                for key, attr in (('input', 'prompt_tokens'), ('output', 'completion_tokens'), ('total', 'total_tokens')):
-                    self.session.usage[key] += getattr(usage, attr, 0) or 0
             self.emit('status', f'Model {time.monotonic() - started:.1f}s | session tokens {self.session.usage["total"]}')
             if not calls:
                 self.session.messages.append(reply)

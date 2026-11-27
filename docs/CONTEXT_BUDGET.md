@@ -43,13 +43,14 @@ resumed sessions use their own configured limits. An unknown model uses the loca
 ceiling and configured output cap; Codine does not invent provider capabilities.
 Set limits for each model you use, especially models with small windows.
 
-If a request exceeds either boundary, Codine drops the oldest complete user turn
-and tries again, counting the added omission notice too. It never cuts through a
-tool-call/result group. If even the current turn cannot fit, it stops before
-billing reservation or provider invocation. Use `/clear`, a smaller task, a smaller
+If a request exceeds either boundary, the agent attempts one bounded semantic
+summary of complete conversation groups. Both the summary request and resulting
+normal request must fit; no tool-call/result group is split. If no complete prefix
+fits a summary request, it stops before billing reservation or provider invocation.
+A summary request itself is charged like normal inference. Use `/clear`, a smaller task, a smaller
 output allowance, or verified larger limits. Output reservation equal to or larger
 than the effective window is rejected rather than silently sending an invalid
-request. Summarization and model-specific tokenizers are not implemented here.
+request. Automatic provider-based summaries are described in [SEMANTIC_COMPACTION.md](SEMANTIC_COMPACTION.md). Model-specific tokenizers are not implemented here.
 
 Offline regression coverage: `tests/test_context_budget.py` exercises Unicode,
 opaque reasoning, tool-pair preservation, exact budget boundaries, independent

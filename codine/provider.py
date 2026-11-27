@@ -78,7 +78,7 @@ class NvidiaProvider:
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url=BASE_URL, timeout=120.0, max_retries=0)
         with self.client.chat.completions.create(
-            model=model, messages=messages, tools=schemas,
+            model=model, messages=messages, **({'tools': schemas} if schemas else {}),
             temperature=1, top_p=0.95, max_tokens=self.config.request_limits(model)[1],
             parallel_tool_calls=True, seed=42,
             extra_body={'chat_template_kwargs': {'enable_thinking': True}},
@@ -103,7 +103,7 @@ class OpenRouterProvider:
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=120.0, max_retries=0)
         response = self.client.chat.completions.create(
-            model=model, messages=messages, tools=schemas,
+            model=model, messages=messages, **({'tools': schemas} if schemas else {}),
             max_tokens=self.config.request_limits(model)[1], stream=False,
             extra_body={'provider': {'require_parameters': True, **({'max_price': self.config.router_max_price} if self.config.router_max_price else {})}},
         )

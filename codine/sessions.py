@@ -79,6 +79,9 @@ class Session:
     updated: str = field(default_factory=now)
     pending: dict | None = None
     context_start: int = 1
+    context_summary: dict = field(default_factory=dict)
+    summary_end: int = 1
+    summary_user: int | None = None
     usage: dict = field(default_factory=lambda: {"input": 0, "output": 0, "total": 0})
 
     @classmethod
@@ -226,6 +229,23 @@ class SessionStore:
                 raise ValueError("Invalid context boundary.")
             if session.context_start < len(session.messages) and session.messages[session.context_start].get('role') != 'user':
                 raise ValueError("Context must begin at a user-turn boundary.")
+            if type(session.summary_end) is not int or not 1 <= session.summary_end <= len(session.messages):
+                raise ValueError('Invalid summary boundary.')
+            if not isinstance(session.context_summary, dict):
+                raise ValueError('Invalid context summary.')
+            if session.context_summary:
+                from .context import complete_boundaries, parse_summary
+                if session.summary_end not in complete_boundaries(session.messages, 1):
+                    raise ValueError('Summary must end after a complete assistant/tool group.')
+                if set(session.context_summary) != {'summary', 'evidence'} or not isinstance(session.context_summary['evidence'], list):
+                    raise ValueError('Invalid summary metadata.')
+                parse_summary({'content': json.dumps(session.context_summary['summary'])}, 'stop')
+            elif session.summary_end != 1 or session.summary_user is not None:
+                raise ValueError('Summary boundary has no summary.')
+            if session.summary_user is not None and (type(session.summary_user) is not int or
+                    not 1 <= session.summary_user < session.summary_end or
+                    session.messages[session.summary_user]['role'] != 'user'):
+                raise ValueError('Invalid summary user anchor.')
             if not isinstance(session.model, str) or not session.model:
                 raise ValueError("Invalid saved model.")
             if not isinstance(session.usage, dict) or any(type(session.usage.get(key)) is not int or session.usage[key] < 0 for key in ('input', 'output', 'total')):
