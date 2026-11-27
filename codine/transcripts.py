@@ -152,10 +152,16 @@ def command(kind, argument, agent, workspace, ui, system):
             workspace.change_session_id = replacement.id
             workspace.read_versions.clear()
             workspace.read_ranges.clear()
-            workspace.restart_requested = False
+            agent.restart_requested = False
             if hasattr(workspace, 'project_checks'):
                 workspace.project_checks.candidates.clear()
                 workspace.project_checks.results.clear()
+            if hasattr(agent, 'git_inspector'):
+                from .git_awareness import GitError
+                try:
+                    agent.git_inspector.capture('session_start')
+                except GitError as error:
+                    ui.write(str(error))
             ui.write('Imported into fresh session ' + replacement.id + '. No tools or model requests executed.')
         agent._transcript_review = None
         return

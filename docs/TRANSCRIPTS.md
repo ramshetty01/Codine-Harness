@@ -32,12 +32,12 @@ checkpoints, plans, context summaries and source project paths are not portable.
 Limits are 1 MB and 2,000 messages. Input must be a regular file, not a symlink or
 hardlink. Duplicate JSON keys, malformed histories and unsupported versions fail.
 
-Pending actions or uncertain/blocked local cost accounting prevent transfer.
+Pending actions or uncertain/blocked cost accounting in the current local session prevent transfer. Transfer does not inspect pending reservations owned by other sessions in the shared ledger; those still block the next inference.
 Import preserves the current local spending totals and never rewrites the shared
 allowance ledger. Only settled session receipt references are dropped for the new
 owner; existing shared reservations still block inference. Resolve uncertain
 costs in their original session. The imported file cannot supply accounting state.
-Session switching clears stale file-read guards and discovered check IDs.
+Session switching clears stale file-read guards, restart requests and discovered check IDs. Import immediately captures a fresh Git baseline for the current project, so subsequent edits remain distinguishable from pre-existing work. Git inspection errors are reported without undoing the import.
 
 JSON/piped mode cannot confirm transfers. Exports are private local files, not an
 automatic upload or a guarantee that sharing the content is appropriate.
