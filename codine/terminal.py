@@ -17,6 +17,7 @@ COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
+    '/tasks': 'Inspect durable task checklist',
     '/context': 'Inspect active context and budget',
     '/policy': 'Explain user command rules',
     '/sandbox': 'Inspect command isolation',
@@ -75,6 +76,9 @@ class CommandCompleter(Completer):
                 yield Completion(command, start_position=-len(text), display_meta=hint)
 
 
+from .command_output import OutputRedactor
+
+
 class Terminal:
     def __init__(self, redactor, interactive=None):
         self.redactor = redactor
@@ -83,6 +87,8 @@ class Terminal:
         self.state = lambda: {}
         self.section = None
         self.buffer = ''
+        self.command_redactor = OutputRedactor()
+        self.command_channel = None
         self.last_result = None
         self.tool_started = None
         self.tool_target = ''
@@ -271,6 +277,16 @@ class Terminal:
             self.buffer = self.buffer[cut:]
 
     def emit(self, kind, text):
+        if kind == 'command_output':
+            event = self.command_redactor.feed(text, self.redactor)
+            if event['text']:
+                if self.section != 'command_output' or self.command_channel != event['stream']:
+                    self.emit('end_stream', '')
+                    self.heading('Command output · ' + event['stream'], 'muted')
+                    self.section = 'command_output'
+                    self.command_channel = event['stream']
+                print(self.clean(event['text']), end='', flush=True)
+            return
         if kind in ('text', 'reasoning'):
             if self.section != kind:
                 self.emit('end_stream', '')

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from .command_output import OutputEvents
 
 RUNNER = r'''
 import contextlib, json, sys, pathlib, runpy
@@ -129,13 +130,14 @@ class DockerSandbox:
             result['diagnostic'] += stdout[-1500:]
         return result
 
-    def _run_payload(self, data, payload_limit=256000):
+    def _run_payload(self, data, payload_limit=256000, on_output=None):
         payload = json.dumps(data, allow_nan=False).encode()
         if len(payload) > payload_limit:
             raise SandboxError('Sandbox input exceeds serialized payload limit.')
         name = 'codine-eval-' + uuid.uuid4().hex
         started = time.monotonic()
         process = None
+        events = OutputEvents(on_output)
         try:
             self._control(self.create_args(name))
             process = subprocess.Popen([self.docker, 'start', '--attach', '--interactive', name],
@@ -168,6 +170,7 @@ class DockerSandbox:
                             remaining = self.output_limit - sum(map(len, output.values()))
                             if remaining > 0:
                                 output[key.data].extend(data[:remaining])
+                                events.feed(key.data, data[:remaining])
                     if total > self.output_limit:
                         status = 'output_limit'
                         break
@@ -191,3 +194,4 @@ class DockerSandbox:
             except SandboxError as error:
                 if 'No such container' not in str(error):
                     raise SandboxError(f'Could not confirm sandbox cleanup. Inspect only container {name}.') from error
+            events.finish()

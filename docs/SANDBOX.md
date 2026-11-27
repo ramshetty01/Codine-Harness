@@ -216,3 +216,36 @@ Prepared custom images must contain `/usr/bin/env` and Python on the fixed PATH
 for the bootstrap, in addition to any tools required by the selected command.
 
 Command approval can additionally use explicit user-owned [command policy rules](COMMAND_POLICY.md). Default behavior remains ask; deny rules take precedence, and noninteractive allow rules cannot bypass approval denial.
+
+### Live output and cancellation (E7)
+
+Approved host and Docker commands now stream stdout/stderr while running. The
+transport emits `command_output` events with `stream`, `text`, and `final` fields;
+`RepositoryExecutor.execute(..., on_output=callback)` also exposes this API to
+local callers. Terminal output labels each stream and strips terminal controls.
+Both terminal and JSON adapters redact known secrets even when a secret or UTF-8
+character is split across read boundaries. Possible secret-prefix suffixes are
+held until they can be safely emitted. Child programs must flush their output;
+Python is configured unbuffered by default in these command environments.
+
+Streaming does not remove limits. Host output retains and displays at most 12 KB
+per stream and stops a process producing over 1 MB total. Docker output uses its
+existing combined cap (64 KiB by default). Byte caps apply before decoding; invalid
+UTF-8 is replaced. The final tool result still includes bounded output and exit
+status, and `/details` can inspect it. Live text is untrusted output, not a command
+or proof that tests passed.
+
+Ctrl+C interrupts the active command. The host executor cleans its process group
+once, sends TERM then KILL, closes pipes, and propagates the interrupt. It also
+cleans same-group background children when the original process exits. This is
+not OS containment: a malicious host child that deliberately creates a separate
+session can escape that process group. Use Docker for containment. Docker forcibly
+removes the entire uniquely named container, including child processes, on timeout,
+output overflow, cancellation or callback failure; cleanup errors are explicit.
+
+The existing agent journal records an interrupted action as outcome unknown and
+does not replay it. CLI recovery saves that state and returns a usable prompt;
+inspect workspace effects before asking to retry. Tests include a real PTY running
+a scripted (no-API) agent, interrupted after live output, then using `/session` and
+exiting normally. Real Docker tests verify pre-exit streaming, output caps and
+container disappearance after interruption with a child process present.

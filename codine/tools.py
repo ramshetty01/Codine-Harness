@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from .registry import ToolRegistry, ToolSpec
+from .command_output import OutputEvents
 
 
 def stop_process(process):
@@ -75,6 +76,7 @@ def run_command(workspace, argv, cwd='.', timeout=30):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     output = {'stdout': bytearray(), 'stderr': bytearray()}
     total, status = 0, 'completed'
+    events = OutputEvents(getattr(workspace, 'command_output', None))
     try:
         with selectors.DefaultSelector() as selector:
             for label, pipe in (('stdout', process.stdout), ('stderr', process.stderr)):
@@ -83,7 +85,6 @@ def run_command(workspace, argv, cwd='.', timeout=30):
             while selector.get_map() or process.poll() is None:
                 if time.monotonic() - started > timeout:
                     status = 'timeout'
-                    stop_process(process)
                     break
                 for key, _ in selector.select(timeout=0.05):
                     data = os.read(key.fileobj.fileno(), 8192)
@@ -94,17 +95,20 @@ def run_command(workspace, argv, cwd='.', timeout=30):
                     remaining = 12000 - len(output[key.data])
                     if remaining > 0:
                         output[key.data].extend(data[:remaining])
+                        events.feed(key.data, data[:remaining])
                 if total > 1_000_000:
                     status = 'output_limit'
-                    stop_process(process)
                     break
-            process.wait()
-    except BaseException:
-        stop_process(process)
-        raise
+            if status == 'completed':
+                process.wait()
     finally:
-        process.stdout.close()
-        process.stderr.close()
+        # Exactly one cleanup, including same-group children after parent exit.
+        try:
+            stop_process(process)
+        finally:
+            process.stdout.close()
+            process.stderr.close()
+            events.finish()
     return {'status': status, 'exit_code': process.returncode,
             **{name: data.decode('utf-8', errors='replace') for name, data in output.items()},
             'output_truncated': total > sum(map(len, output.values())),
@@ -141,7 +145,7 @@ def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
         return command_rejection(workspace)
     executor.timeout = timeout
     try:
-        return executor.execute(manifest, argv, cwd=cwd)
+        return executor.execute(manifest, argv, cwd=cwd, on_output=getattr(workspace, 'command_output', None))
     except SandboxError as error:
         raise ValueError(str(error)) from error
 

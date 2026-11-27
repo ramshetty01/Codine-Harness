@@ -20,7 +20,7 @@ for name, content in payload['files'].items():
     target.chmod(0o600)
 os.chdir(root / payload['cwd'])
 env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/tmp',
-       'LANG': 'C.UTF-8', 'TMPDIR': '/tmp'}
+       'LANG': 'C.UTF-8', 'TMPDIR': '/tmp', 'PYTHONUNBUFFERED': '1'}
 env.update(payload['env'])
 # stdin carried the manifest; commands must not inherit it or prompt interactively.
 with open('/dev/null', 'rb') as source:
@@ -87,8 +87,8 @@ class RepositoryExecutor(DockerSandbox):
             raise SandboxError('Only bounded, explicitly allowed build environment settings are accepted.')
         return {'files': files, 'argv': list(argv), 'cwd': cwd, 'env': dict(env)}
 
-    def execute(self, manifest, argv, *, cwd='.', env=None):
+    def execute(self, manifest, argv, *, cwd='.', env=None, on_output=None):
         payload = self.prepare_request(manifest, argv, cwd=cwd, env=env)
-        result = self._run_payload(payload, payload_limit=50_000_000)
+        result = self._run_payload(payload, payload_limit=50_000_000, on_output=on_output)
         result.update({'manifest_digest': manifest.digest, 'argv': list(argv), 'cwd': cwd})
         return result

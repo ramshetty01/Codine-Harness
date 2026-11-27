@@ -1,6 +1,7 @@
 """Versioned JSONL output adapter; shares agent events with the interactive UI."""
 import json
 from .terminal import safe_text
+from .command_output import OutputRedactor
 
 
 class JsonTerminal:
@@ -9,10 +10,16 @@ class JsonTerminal:
     def __init__(self, redactor):
         self.redactor = redactor
         self.sequence = 0
+        self.command_redactor = OutputRedactor()
         self.last_result = None
         self.state = lambda: {}
 
     def emit(self, kind, data):
+        if kind == 'command_output':
+            data = self.command_redactor.feed(data, self.redactor)
+            data['text'] = safe_text(data['text'])
+            if not data['text'] and not data.get('final'):
+                return
         self.sequence += 1
         if kind == 'result':
             self.last_result = data

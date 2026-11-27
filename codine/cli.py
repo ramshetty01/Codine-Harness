@@ -307,6 +307,7 @@ def main(argv=None):
         store.save(session)
         provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
+        workspace.command_output = lambda event: ui.emit('command_output', event)
         workspace.command_executor = command_executor
         workspace.command_policy = command_policy
         workspace.policy_interactive = ui.interactive
