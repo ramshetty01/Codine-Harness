@@ -21,7 +21,7 @@ class PTY:
     def __init__(self, argv, cwd, env=None, columns=120):
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 35, columns, 0, 0))
-        settings = dict(os.environ, TERM='xterm-256color', PROMPT_TOOLKIT_NO_CPR='1', PYTHONPATH=str(APP_ROOT))
+        settings = dict(os.environ, TERM=os.getenv('CODINE_TEST_TERM', 'xterm-256color'), PROMPT_TOOLKIT_NO_CPR='1', PYTHONPATH=str(APP_ROOT))
         settings.update(env or {})
         self.process = subprocess.Popen(argv, cwd=cwd, stdin=slave, stdout=slave, stderr=slave, env=settings, start_new_session=True)
         os.close(slave)
