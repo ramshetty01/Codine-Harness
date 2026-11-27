@@ -143,3 +143,18 @@ Added explicit Python manifests, Docker package imports, and two multi-module re
 Replaced the framed onboarding card, repeated separators, and fixed teal palette with a compact wordmark, native terminal colors, plain prompt, permission-first footer, and open review margins. Tool rows show a sanitized target; previews remain expandable via `/details`. Full diffs and approval details remain visible. Added an offline fictional transcript at `scripts/preview_ui.py`.
 
 Validation: startup check passed; unittest discovery ran 83 tests, with 74 passing and nine opt-in Docker tests skipped. Real PTY tests covered multiline paste with separate approval, narrow slash completion, and restart/session restore. UI regression checks cover redacted tool targets, hidden edit bodies, full output retention, wrapped wide characters, and permission visibility in narrow footers. No model API requests were made. Unrelated user files were preserved.
+
+## 27 November 2026 — practical release with bounded live evaluations
+
+Implementation commit: `e54613a`. Added OpenRouter model selection, shared locked evaluation spending, file checkpoints/diff/undo, SHA256-guarded line replacement, single-file search, recovery scenarios, and exact-duplicate reasoning removal from request context. Local new-session configuration selects `qwen/qwen3.7-flash`; credentials remain untracked.
+
+- Full opt-in Docker test run: **114 tests passed**, 17.382 seconds. A subsequent targeted real-PTY check also passed after adding the undo conversation notice.
+- Startup check: **22 Python modules, nine tools**, no inference or session writes.
+- Offline Docker function suite after the context change: **12/12 passed**; the package suite and container controls also passed in the full tests.
+- Final live regression: **14/14** completed (12 function tasks and two multi-file tasks), **$0.003716036**, median **17.54s**, nearest-rank p95 **27.782s**, **2** intermediate tool/check failures retained in reporting.
+- Across all recorded live attempts: **43/46 completed**, **277 requests**, **$0.011877392** confirmed cost. Three earlier incomplete/failed attempts are preserved: one provider 429, one exact-edit/context failure, and one duplicate-reasoning context failure after a correct patch. They are not counted as passes.
+- Shared ledger has **no pending reservation** and no stop flag. Less than two cents of the $5 allowance was used; the $1.50 reserve was preserved.
+
+Local reports: `.codine/evals/release-summary.json`, `context-functions.json`, `context-repository.json`, and earlier named reports. They are ignored by Git. The ledger total equals the sum of known report charges. The initial rejected request was reconciled at $0 only after delayed provider key usage matched all successful charges; its evidence remains local.
+
+These small public Python fixtures measure useful tool behavior, not Pi feature parity or general repository-solving ability. The evaluator uses Docker; interactive host commands remain approval-based and unsandboxed. See `docs/PRACTICAL_RELEASE.md` for the learning guide, failed attempts, and limitations. The user's pre-existing `example.py` changes remain untouched.
