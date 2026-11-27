@@ -90,7 +90,7 @@ class RepositoryExecutor(DockerSandbox):
             raise SandboxError('Only bounded, explicitly allowed build environment settings are accepted.')
         return {'files': files, 'argv': list(argv), 'cwd': cwd, 'env': dict(env)}
 
-    def execute(self, manifest, argv, *, cwd='.', env=None, on_output=None, network='none', credentials=None):
+    def execute(self, manifest, argv, *, cwd='.', env=None, on_output=None, network='none', credentials=None, cancel_event=None):
         payload = self.prepare_request(manifest, argv, cwd=cwd, env=env)
         if network not in ('none', 'bridge'):
             raise SandboxError('Command network must be none or bridge.')
@@ -110,7 +110,7 @@ class RepositoryExecutor(DockerSandbox):
         try:
             try:
                 result = transport._run_payload(payload, payload_limit=50_000_000,
-                                           on_output=None if credentials else on_output)
+                                           on_output=None if credentials else on_output, cancel_event=cancel_event)
             except Exception:
                 if credentials:
                     raise SandboxError('Credential-scoped command failed; output and transport details withheld.') from None

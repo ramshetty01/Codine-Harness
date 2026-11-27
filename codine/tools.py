@@ -1,5 +1,6 @@
 """Tool declarations live next to bindings, with approved bounded execution."""
 import os
+import copy
 import selectors
 import shlex
 import signal
@@ -59,14 +60,16 @@ def command_rejection(workspace):
             'stdout': '', 'stderr': '', 'reason': decision.reason if decision else 'Approval declined.'}
 
 
-def run_command(workspace, argv, cwd='.', timeout=30):
-    if not argv or len(argv) > 100 or any(not isinstance(arg, str) or '\x00' in arg for arg in argv):
-        raise ValueError('Provide 1–100 command arguments, with no null bytes.')
+def prepare_host_command(workspace, argv, cwd='.', timeout=30, *, timeout_ceiling=120):
+    if (not isinstance(argv, (list, tuple)) or not argv or len(argv) > 100 or
+            any(not isinstance(arg, str) or '\x00' in arg for arg in argv) or
+            not argv[0] or sum(len(arg.encode('utf-8')) for arg in argv) > 32768):
+        raise ValueError('Provide 1–100 command arguments under 32 KB, with no null bytes.')
     directory = workspace.resolve(cwd, directory=True)
     if not directory.is_dir():
         raise ValueError('Command directory does not exist.')
-    if not 1 <= timeout <= 120:
-        raise ValueError('Command timeout must be 1–120 seconds.')
+    if timeout_ceiling not in (120, 3600) or type(timeout) is not int or not 1 <= timeout <= timeout_ceiling:
+        raise ValueError(f'Command timeout must be 1–{timeout_ceiling} seconds.')
     policy_argv = tuple(argv)
     argv = list(argv)
     if argv[0] in ('python', 'python3'):
@@ -77,18 +80,32 @@ def run_command(workspace, argv, cwd='.', timeout=30):
     # Do not forward provider credentials. Programs can still read the filesystem.
     env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SYSTEMROOT') if key in os.environ}
     env['PYTHONUNBUFFERED'] = '1'
+    return lambda cancel, output: _run_host(argv, directory, env, timeout, cancel, output)
+
+
+def run_command(workspace, argv, cwd='.', timeout=30):
+    run = prepare_host_command(workspace, argv, cwd, timeout)
+    return run(None, getattr(workspace, 'command_output', None)) if callable(run) else run
+
+
+def _run_host(argv, directory, env, timeout, cancel_event=None, on_output=None):
+    if cancel_event is not None and cancel_event.is_set():
+        return {'status': 'cancelled', 'exit_code': None, 'stdout': '', 'stderr': ''}
     started = time.monotonic()
     process = subprocess.Popen(argv, cwd=directory, env=env, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     output = {'stdout': bytearray(), 'stderr': bytearray()}
     total, status = 0, 'completed'
-    events = OutputEvents(getattr(workspace, 'command_output', None))
+    events = OutputEvents(on_output)
     try:
         with selectors.DefaultSelector() as selector:
             for label, pipe in (('stdout', process.stdout), ('stderr', process.stderr)):
                 os.set_blocking(pipe.fileno(), False)
                 selector.register(pipe, selectors.EVENT_READ, label)
             while selector.get_map() or process.poll() is None:
+                if cancel_event is not None and cancel_event.is_set():
+                    status = 'cancelled'
+                    break
                 if time.monotonic() - started > timeout:
                     status = 'timeout'
                     break
@@ -134,12 +151,12 @@ def execution_status(workspace):
     return message
 
 
-def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
+def prepare_docker_command(workspace, argv, files, cwd='.', timeout=30, *, timeout_ceiling=120):
     from .staging import snapshot_repository
     from .sandbox import SandboxError
-    if not 1 <= timeout <= 120:
-        raise ValueError('Command timeout must be 1–120 seconds.')
-    executor = workspace.command_executor
+    if timeout_ceiling not in (120, 3600) or type(timeout) is not int or not 1 <= timeout <= timeout_ceiling:
+        raise ValueError(f'Command timeout must be 1–{timeout_ceiling} seconds.')
+    executor = copy.copy(workspace.command_executor)
     argv = tuple(argv)
     manifest = snapshot_repository(workspace.root, files)
     # Validate before showing approval and retain these exact immutable bytes.
@@ -168,14 +185,50 @@ def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
         credentials = workspace.execution_credentials.for_grant(grant) if grant.credentials else {}
         access = {'network': grant.network, 'credentials': credentials}
     executor.timeout = timeout
-    try:
-        return executor.execute(manifest, argv, cwd=cwd, on_output=getattr(workspace, 'command_output', None), **access)
-    except SandboxError as error:
-        raise ValueError(str(error)) from error
+    def run(cancel, output):
+        try:
+            return executor.execute(manifest, argv, cwd=cwd, on_output=output, cancel_event=cancel, **access)
+        except SandboxError as error:
+            raise ValueError(str(error)) from error
+    return run
+
+
+def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
+    run = prepare_docker_command(workspace, argv, files, cwd, timeout)
+    return run(None, getattr(workspace, 'command_output', None)) if callable(run) else run
+
+
+def start_job(workspace, argv, files=None, cwd='.', timeout=300):
+    supervisor = getattr(workspace, 'jobs', None)
+    if supervisor is None:
+        raise ValueError('Background jobs are unavailable in this runtime.')
+    if getattr(workspace, 'command_executor', None) is not None:
+        if files is None:
+            raise ValueError('Docker jobs require explicit files.')
+        run = prepare_docker_command(workspace, argv, files, cwd, timeout, timeout_ceiling=3600)
+    else:
+        if files is not None:
+            raise ValueError('Host jobs do not stage files; select Docker for isolation.')
+        run = prepare_host_command(workspace, argv, cwd, timeout, timeout_ceiling=3600)
+    if not callable(run):
+        return run
+    return supervisor.start(shlex.join(argv), run, timeout=timeout)
+
+
+def job_status(workspace, job_id=None):
+    if getattr(workspace, 'jobs', None) is None:
+        raise ValueError('Background jobs are unavailable in this runtime.')
+    return workspace.jobs.status(job_id)
+
+
+def cancel_job(workspace, job_id):
+    if getattr(workspace, 'jobs', None) is None:
+        raise ValueError('Background jobs are unavailable in this runtime.')
+    return workspace.jobs.cancel_job(job_id)
 
 
 def build_registry(workspace, request_restart):
-    registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect in ("read", "plan"))
+    registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect in ("read", "plan", "cancel"))
     def add(name, description, handler, properties, required=(), effect="read"):
         registry.register(ToolSpec(name, description, {'type': 'object', 'properties': properties,
                                 'required': list(required), 'additionalProperties': False}, handler, effect))
@@ -204,5 +257,16 @@ def build_registry(workspace, request_restart):
     else:
         add('run_command', 'Run an argv array without shell expansion, after explicit approval. Commands have full user filesystem/network privileges. Output bounded; default timeout 30 seconds. Use python for this harness interpreter.',
             lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',), effect='execute')
+    job_properties = {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 3600)}
+    job_required = ['argv']
+    if getattr(workspace, 'command_executor', None) is not None:
+        job_properties['files'] = {'type': 'array', 'items': string}
+        job_required.append('files')
+    add('start_job', 'Start a bounded background command using the selected executor and identical approval/profile policy. Default 300 seconds, maximum 3600 seconds; at most four active jobs. Docker requires explicit files. Jobs stop on exit/restart and do not survive crashes.',
+        lambda **args: start_job(workspace, **args), job_properties, job_required, effect='execute')
+    add('job_status', 'Inspect in-process job status and bounded redacted logs; omit job_id for summaries.',
+        lambda **args: job_status(workspace, **args), {'job_id': string})
+    add('cancel_job', 'Request cancellation and cleanup of a job in this process; inspect status to confirm completion.',
+        lambda **args: cancel_job(workspace, **args), {'job_id': string}, ('job_id',), effect='cancel')
     add('request_restart', 'Ask permission to save and restart Codine at a completed tool boundary, validating its code first. Reloads edited harness code and tools; keeps session. Do not call for ordinary project edits.', request_restart, {}, effect="restart")
     return registry

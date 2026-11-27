@@ -130,7 +130,7 @@ class DockerSandbox:
             result['diagnostic'] += stdout[-1500:]
         return result
 
-    def _run_payload(self, data, payload_limit=256000, on_output=None):
+    def _run_payload(self, data, payload_limit=256000, on_output=None, cancel_event=None):
         payload = json.dumps(data, allow_nan=False).encode()
         if len(payload) > payload_limit:
             raise SandboxError('Sandbox input exceeds serialized payload limit.')
@@ -149,6 +149,9 @@ class DockerSandbox:
                     os.set_blocking(pipe.fileno(), False)
                     selector.register(pipe, selectors.EVENT_WRITE if label == 'stdin' else selectors.EVENT_READ, label)
                 while selector.get_map() or process.poll() is None:
+                    if cancel_event is not None and cancel_event.is_set():
+                        status = 'cancelled'
+                        break
                     if time.monotonic() - started > self.timeout:
                         status = 'timeout'
                         break

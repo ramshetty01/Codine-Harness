@@ -17,6 +17,8 @@ COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
+    '/artifact': 'Read saved tool output', '/rename': 'Rename a session',
+    '/jobs': 'Inspect background jobs', '/cancel': 'Cancel a background job',
     '/tasks': 'Inspect durable task checklist',
     '/context': 'Inspect active context and budget',
     '/policy': 'Explain user command rules',
@@ -33,6 +35,7 @@ COMMANDS = {
 TOOL_LABELS = {
     'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
     'write_file': 'Create file', 'edit_file': 'Edit file', 'replace_lines': 'Replace lines', 'check_python': 'Check Python',
+    'start_job': 'Start background job', 'job_status': 'Inspect job', 'cancel_job': 'Cancel job',
     'run_command': 'Run command', 'request_restart': 'Prepare restart',
 }
 STYLE = Style.from_dict({
@@ -247,6 +250,8 @@ class Terminal:
                 title = 'Syntax valid'
             if 'path' in value:
                 title += ' · ' + str(value['path'])
+            if value.get('id') and status in ('queued', 'running', 'cancelled'):
+                title += ' · job ' + str(value['id'])
             if 'files' in value and isinstance(value['files'], list):
                 title = f'{len(value["files"])} files found'
                 lines = [str(item) for item in value['files']]

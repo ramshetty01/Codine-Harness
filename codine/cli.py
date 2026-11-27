@@ -1,5 +1,6 @@
 """CLI composition and slash commands. The model never handles slash commands."""
 import argparse
+import json
 from pathlib import Path
 import sys
 
@@ -22,6 +23,8 @@ from .workspace import Workspace
 HELP = '''Commands
   /help                 Show this guide
   /plan                 Enter read-only planning; /permissions ask exits
+  /jobs [ID]            List background jobs or inspect bounded logs
+  /cancel ID            Request background job cancellation
   /sandbox              Inspect effective command isolation and image
   /policy               Show user command rules and last explained decision
   /instructions         Show loaded root project guidance
@@ -97,6 +100,12 @@ def command(text, agent, workspace, ui):
     session = agent.session
     if name == '/help':
         ui.write(HELP)
+    elif name == '/jobs':
+        ui.write(json.dumps(workspace.jobs.status(argument or None), indent=2))
+    elif name == '/cancel':
+        if not argument:
+            raise ValueError('Usage: /cancel JOB_ID')
+        ui.write(json.dumps(workspace.jobs.cancel_job(argument), indent=2))
     elif name == '/policy':
         policy = getattr(workspace, 'command_policy', None)
         ui.write(policy.describe() if policy else 'No command rules; commands require approval.')
@@ -282,7 +291,7 @@ def main(argv=None):
         else:
             print(message)
         return 0
-    store = provider = agent = None
+    store = provider = agent = jobs = None
     ui = JsonTerminal(Redactor()) if args.json else Terminal(Redactor())
     try:
         from .command_policy import CommandPolicy
@@ -325,6 +334,9 @@ def main(argv=None):
         store.save(session)
         provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
+        from .jobs import JobSupervisor
+        jobs = JobSupervisor(redactor)
+        workspace.jobs = jobs
         workspace.command_output = lambda event: ui.emit('command_output', event)
         workspace.command_executor = command_executor
         workspace.execution_profile = execution_profile
@@ -335,6 +347,7 @@ def main(argv=None):
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
+        agent.jobs = jobs
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
         agent.execution_credentials = execution_credentials
@@ -414,10 +427,19 @@ def main(argv=None):
                                 'retryable': False, 'verification': 'unverified'})
         return 1
     finally:
+        cleanup_failed = False
+        if jobs:
+            try:
+                jobs.close()
+            except RuntimeError as error:
+                cleanup_failed = True
+                show_error(ui, error)
         if store:
             store.close()
         if provider:
             provider.close()
+        if cleanup_failed:
+            raise SystemExit(1)
 
 
 if __name__ == '__main__':
