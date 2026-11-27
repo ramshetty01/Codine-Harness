@@ -96,12 +96,15 @@ def build_registry(workspace, request_restart):
         {'path': string, 'recursive': {'type': 'boolean'}, 'limit': integer(1, 2000)})
     add('read_file', 'Read a page of UTF-8 text with line numbers and SHA256. Follow next_page to read more, passing expected_sha256 from the previous page. Read the exact region before editing.', workspace.read_file,
         {'path': string, 'start_line': integer(1, 10000000), 'max_lines': integer(1, 2000), 'start_char': integer(0, 2000000), 'expected_sha256': string}, ('path',))
-    add('search', 'Search literal text in project files; returns bounded matching lines. Read before editing.', workspace.search,
+    add('search', 'Search literal text in a project file or directory; returns bounded matching lines. Read before editing.', workspace.search,
         {'query': string, 'path': string, 'limit': integer(1, 200)}, ('query',))
     add('write_file', 'Create a NEW project text file, with diff and approval. Cannot overwrite existing files.', workspace.write_file,
         {'path': string, 'content': string}, ('path', 'content'), effect='write')
     add('edit_file', 'Replace exactly one occurrence of old_text previously read in the CURRENT file version. Shows diff, requires approval by default, rejects stale edits.', workspace.edit_file,
         {'path': string, 'old_text': string, 'new_text': string}, ('path', 'old_text', 'new_text'), effect='write')
+    add('replace_lines', 'Replace an inclusive line range already read in the current file. Requires the SHA256 returned by read_file. Use this when exact substring quoting is difficult. Pass literal replacement text, including trailing newline when more lines follow. Shows diff and requires approval by default.', workspace.replace_lines,
+        {'path': string, 'start_line': integer(1, 10000000), 'end_line': integer(1, 10000000), 'new_text': string, 'expected_sha256': string},
+        ('path', 'start_line', 'end_line', 'new_text', 'expected_sha256'), effect='write')
     add('check_python', 'Validate Python syntax without executing the file.', workspace.check_python, {'path': string}, ('path',))
     add('run_command', 'Run an argv array without shell expansion, after explicit approval. Commands have full user filesystem/network privileges. Output bounded; default timeout 30 seconds. Use python for this harness interpreter.',
         lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',), effect='execute')

@@ -6,7 +6,7 @@
 
 **Does a model solve tasks well through this harness?** Only live, independently graded runs answer that. A scripted 12/12 is not a model benchmark and must not be reported as one.
 
-The present phase runs the first category only. No inference call is needed, and no API key is needed by the offline runner.
+The offline runner needs no API key and makes no inference calls. A separate, explicitly invoked live runner is now available after the user authorized bounded OpenRouter evaluations on 27 November 2026.
 
 ## Run the local checks
 
@@ -59,7 +59,7 @@ A final assistant message saying “done” does not pass a task. A run must fin
 
 Keep full diagnostics locally. Report aggregate success counts separately from provider connectivity failures. Record model ID, serving endpoint, harness commit, task version, request parameters, actual cost, elapsed time, and number of tool calls for future live runs. Do not silently rerun failures until they pass; report retries as attempts and charge them to the budget.
 
-## Later paid stage
+## Paid-stage procedure
 
 Before spending the $5:
 
@@ -89,3 +89,18 @@ ready → reserve & save → send one request → actual cost → settle & save
 ## Future improvements, measured in order
 
 Start with task completion and boundary compliance. Then measure cost per successful task, unnecessary tool calls, repeated failures, and latency. Only then investigate semantic compaction, richer skills, alternative models, parallel agents, and self-improvement loops. A faster or cheaper answer that fails the task is not an improvement.
+
+## Live runner
+
+```bash
+python -m codine.live_evals --model qwen/qwen3.7-flash --task positive_sum --run-budget 0.25 --report .codine/evals/my-smoke.json
+python -m codine.live_evals --model qwen/qwen3.7-flash --suite repository --run-budget 0.25 --report .codine/evals/my-repo.json
+```
+
+These commands spend real OpenRouter credits. The model ID above was evaluated on 27 November 2026, not promised to remain available. Candidate execution requires Docker; there is no host fallback. Host command and restart tools are removed from the live registry. A `run_checks` tool runs behavior checks in fresh containers. The model sees returned values and pass/fail, not reference solutions or expected-answer files. The final grader uses the same fixed cases; this is an openly inspectable small task suite, not a secret benchmark.
+
+The shared ledger is `.codine/evals/budget.json` under the harness checkout. Its $3.50 ceiling persists across invocations; a concurrent run or changed key cannot silently reset it. Per-run caps are $0.05–$0.75, and each request reserves $0.05. The runner queries key availability before each request to retain a $1.50 reserve. Missing charges block calls until the operator checks provider billing and explicitly runs `python -m codine.live_evals --reconcile-cost AMOUNT`. Do not delete the ledger to get around a limit.
+
+Reports retain failed attempts. They include task outcomes, returned values, actual known costs, pending reservations, timings, tool errors, and (in the current format) candidate files and conversation traces. A run may stop before all selected tasks; compare `selected_tasks` with the result rows. Traces stay local and ignored by Git. The interactive `/budget` is session-scoped and distinct from this evaluation ledger.
+
+[The practical release guide](PRACTICAL_RELEASE.md) records the evaluated models, observed failures, targeted changes, and interpretation limits.

@@ -6,7 +6,7 @@ Codine is an educational Python terminal coding harness. Keep the model adapter,
 - Validate with `.venv/bin/python main.py --check` and `.venv/bin/python -m unittest discover -s tests -v`.
 - Run `.venv/bin/python -m codine.evals --offline` when changing the agent loop or grader.
 - Offline scripted exercises verify infrastructure, not live model solve rate. Label results accurately.
-- Do not run `tests/live_smoke.py` or any live model request during the current offline development phase. Paid evaluations are a separate final stage.
+- The user authorized iterative bounded OpenRouter evaluations on 27 November 2026. Use `python -m codine.live_evals` only after offline checks; it shares a $3.50 ledger across tasks and preserves a $1.50 key reserve. Never bypass an unresolved pending charge or use `tests/live_smoke.py` for untracked calls.
 - Preserve unrelated user changes, especially the current `example.py` edit.
 - Keep keys, research downloads, sessions, and evaluation reports out of commits.
 - Never treat a model's final answer as proof that a test passed. Report actual checks and limitations.

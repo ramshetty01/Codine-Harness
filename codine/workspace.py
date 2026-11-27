@@ -23,7 +23,7 @@ def preview_change(path, before, after):
 
 
 class Workspace:
-    def __init__(self, root, approve, emit=print, app_root=None):
+    def __init__(self, root, approve, emit=print, app_root=None, track_changes=False):
         self.root = Path(root).resolve()
         self.approve = approve
         self.emit = emit
@@ -31,6 +31,7 @@ class Workspace:
         self.read_versions = {}
         self.read_ranges = {}
         self.mode = "ask"
+        self.track_changes = track_changes
 
     def resolve(self, name, directory=False):
         if not isinstance(name, str) or not name or "\x00" in name:
@@ -119,7 +120,8 @@ class Workspace:
     def search(self, query, path=".", limit=50):
         if not query:
             raise ValueError("Search query cannot be empty.")
-        listing = self.list_files(path, recursive=True, limit=2000)
+        target = self.resolve(path, directory=True)
+        listing = {'files': [path], 'truncated': False} if target.is_file() else self.list_files(path, recursive=True, limit=2000)
         matches = []
         for relative in listing["files"]:
             try:
@@ -139,13 +141,13 @@ class Workspace:
         if not self.app_root:
             return False
         return (target == self.app_root / "main.py" or target.is_relative_to(self.app_root / "codine")
-                or target in [self.app_root / name for name in ("requirements.txt", ".gitignore", "RECOVERY.md", "PRD.md")])
+                or target in [self.app_root / name for name in ("requirements.txt", "model_picker.py", ".gitignore", "RECOVERY.md", "PRD.md")])
 
     def _confirm(self, target, description, before, after):
         self.emit(preview_change(target.relative_to(self.root).as_posix(), before, after))
         return (self.mode == "auto-edit" and not self._core(target)) or self.approve(description)
 
-    def _atomic_write(self, target, data, original=None):
+    def _atomic_write(self, target, data, original=None, record=True):
         target.parent.mkdir(parents=True, exist_ok=True)
         self.resolve(target.relative_to(self.root).as_posix())
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
@@ -162,6 +164,14 @@ class Workspace:
                 raise ValueError("File appeared after the preview; refusing to overwrite.")
             if original is not None and (target.stat().st_nlink != 1 or target.read_bytes() != original):
                 raise ValueError("File changed after the preview. Read it again.")
+            if self.track_changes and record:
+                from .changes import ChangeStore
+                ChangeStore(self.root).prepare(target.relative_to(self.root).as_posix(), original, fingerprint(data))
+                self.resolve(target.relative_to(self.root).as_posix())
+                if original is None and target.exists():
+                    raise ValueError('File appeared while saving checkpoint.')
+                if original is not None and (target.stat().st_nlink != 1 or target.read_bytes() != original):
+                    raise ValueError('File changed while saving checkpoint.')
             os.replace(temporary, target)
             descriptor = os.open(target.parent, os.O_RDONLY)
             try:
@@ -194,7 +204,7 @@ class Workspace:
         if self.read_versions.get(path) != fingerprint(data):
             raise ValueError("Read this file's current contents before editing; the file is unread or changed.")
         if not old_text or original.count(old_text) != 1:
-            raise ValueError("old_text must match exactly one location.")
+            raise ValueError("old_text must match exactly one location. Copy literal source text without line-number prefixes; do not double-escape newlines or change punctuation. Alternatively use replace_lines with the SHA256 from read_file.")
         start = original.index(old_text)
         end = start + len(old_text)
         covered = start
@@ -216,6 +226,87 @@ class Workspace:
         self.read_versions[path] = fingerprint(updated.encode("utf-8"))
         self.read_ranges[path] = [(start, start + len(new_text))]
         return {"status": "updated", "path": path}
+
+    def replace_lines(self, path, start_line, end_line, new_text, expected_sha256):
+        """Line-addressed alternative; still requires a fresh, fully read region."""
+        target = self.resolve(path)
+        data, original = self._read(target)
+        version = fingerprint(data)
+        if expected_sha256 != version or self.read_versions.get(path) != version:
+            raise ValueError('File is unread or changed. Read its current contents and use that SHA256.')
+        if target.stat().st_nlink != 1:
+            raise ValueError('Hard-linked files cannot be edited.')
+        lines = original.splitlines(keepends=True)
+        if not 1 <= start_line <= end_line <= len(lines):
+            raise ValueError('Provide an existing inclusive line range.')
+        start = sum(map(len, lines[:start_line - 1]))
+        end = sum(map(len, lines[:end_line]))
+        covered = start
+        for left, right in sorted(self.read_ranges.get(path, [])):
+            if left <= covered:
+                covered = max(covered, right)
+        if covered < end:
+            raise ValueError('Read the complete line range before replacing it.')
+        if end_line < len(lines) and new_text and not new_text.endswith('\n'):
+            raise ValueError('Replacement must end with a newline when following lines remain.')
+        updated = original[:start] + new_text + original[end:]
+        encoded = updated.encode('utf-8')
+        if '\x00' in new_text or len(encoded) > MAX_FILE_BYTES:
+            raise ValueError('Expected text under 2 MB.')
+        if updated == original:
+            return {'status': 'unchanged', 'path': path}
+        if not self._confirm(target, f'Replace lines {start_line}–{end_line} in {path}?', original, updated):
+            return {'status': 'declined', 'path': path}
+        self._atomic_write(target, encoded, data)
+        self.read_versions[path] = fingerprint(encoded)
+        self.read_ranges[path] = [(start, start + len(new_text))]
+        return {'status': 'updated', 'path': path}
+
+    def show_change(self, ident=None):
+        from .changes import ChangeStore
+        store = ChangeStore(self.root)
+        records = [store.load(ident)] if ident else store.list(1)
+        if not records:
+            return 'No file-tool checkpoints.'
+        record = records[0]
+        _, current = self._read(self.resolve(record['path']))
+        return preview_change(record['path'], record['before'] or '', current)
+
+    def undo(self, ident=None):
+        if self.mode == 'plan':
+            raise ValueError('Undo is disabled in planning mode.')
+        from .changes import ChangeStore
+        store = ChangeStore(self.root)
+        records = [store.load(ident)] if ident else store.list(1)
+        if not records:
+            return {'status': 'unchanged', 'message': 'No file-tool changes to undo.'}
+        record = records[0]
+        if record.get('undone'):
+            raise ValueError('This change was already undone.')
+        target = self.resolve(record['path'])
+        data, current = self._read(target)
+        if target.stat().st_nlink != 1 or fingerprint(data) != record['after_hash']:
+            raise ValueError('File changed since this checkpoint. Refusing to overwrite newer work.')
+        before = record['before']
+        self.emit(preview_change(record['path'], current, before or ''))
+        action = 'Remove newly created file' if before is None else 'Restore previous contents of'
+        if not self.approve(f"{action} {record['path']}? Shell side effects are not undone."):
+            return {'status': 'declined'}
+        if before is None:
+            self.resolve(record['path'])
+            if target.stat().st_nlink != 1 or target.read_bytes() != data:
+                raise ValueError('File changed after undo preview.')
+            target.unlink()
+            descriptor = os.open(target.parent, os.O_RDONLY)
+            try: os.fsync(descriptor)
+            finally: os.close(descriptor)
+        else:
+            self._atomic_write(target, before.encode('utf-8'), data, record=False)
+        record['undone'] = True
+        store.save(record)
+        self.read_versions.clear()
+        self.read_ranges.clear()
+        return {'status': 'undone', 'path': record['path'], 'change': record['id']}
 
     def check_python(self, path):
         if not path.endswith(".py"):

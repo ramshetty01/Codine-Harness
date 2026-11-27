@@ -83,3 +83,7 @@ git commit -m "Describe the verified change"
 ```
 
 Inspect `git status` before staging. Avoid `git add -A` when unrelated work or credentials might be present. The absence of a delete tool is not a sandbox: an approved command or bad code edit can still damage the project.
+
+## Recover one file-tool change
+
+In an interactive Codine session, use `/changes`, then `/diff ID`, then `/undo ID`. Omit the ID for the latest checkpoint. Review the diff and approve only the intended restoration. The file must still match the recorded after-image; otherwise Codine refuses the undo. `/undo` does not restore shell side effects, and it does not replace Git recovery. It can recover file-tool changes across restarts while `.codine/changes/` remains intact. A checkpoint written immediately before a failed/crashed write may exist without an applied change; the hash guard will refuse a mismatched state.

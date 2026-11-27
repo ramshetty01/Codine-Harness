@@ -105,7 +105,7 @@ class OpenRouterProvider:
         response = self.client.chat.completions.create(
             model=model, messages=messages, tools=schemas,
             max_tokens=self.config.max_tokens, stream=False,
-            extra_body={'provider': {'require_parameters': True}},
+            extra_body={'provider': {'require_parameters': True, **({'max_price': self.config.router_max_price} if self.config.router_max_price else {})}},
         )
         if not response.choices:
             raise RuntimeError('OpenRouter returned no choices.')

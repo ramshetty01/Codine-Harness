@@ -4,7 +4,7 @@ A Python terminal coding assistant informed by Pi, Claude Code, and Codex, built
 
 Read **[PRD.md](PRD.md)** for the detailed architecture, concepts, code walkthrough, and acceptance requirements. **[VERIFICATION.md](VERIFICATION.md)** records what was actually tested. **[RECOVERY.md](RECOVERY.md)** explains how to recover from a broken self-edit.
 
-The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)**. The current development phase is offline: **[docs/EVALUATIONS.md](docs/EVALUATIONS.md)** explains the evaluation runner and the later paid API stage.
+The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)**. Offline and bounded live evaluation are available: **[docs/EVALUATIONS.md](docs/EVALUATIONS.md)** explains the evaluation runner and the later paid API stage.
 
 ## Start
 
@@ -50,7 +50,7 @@ CODINE_MAX_STEPS=12
 CODINE_CONTEXT_CHARS=160000
 ```
 
-By default, the OpenAI Python SDK sends requests to **NVIDIA**, at `https://integrate.api.nvidia.com/v1`. An OpenAI key is not needed. An optional OpenRouter adapter is available for the later evaluation stage; select it explicitly rather than changing the NVIDIA endpoint. Existing shell variables override `.env`; existing output-budget settings also override the defaults. The app's `.env` loads first, then the selected project's `.env` supplies values that are still unset.
+By default, the OpenAI Python SDK sends requests to **NVIDIA**, at `https://integrate.api.nvidia.com/v1`. An OpenAI key is not needed. An OpenRouter adapter is available; select it explicitly rather than changing the NVIDIA endpoint. This installation was evaluated with `qwen/qwen3.7-flash` on 27 November 2026. See [the practical release guide](docs/PRACTICAL_RELEASE.md) for results, costs, and limitations. Existing shell variables override `.env`; existing output-budget settings also override the defaults. The app's `.env` loads first, then the selected project's `.env` supplies values that are still unset.
 
 `python main.py --check` validates syntax and startup without an API request or session write. Offline slash commands work without a key. Model access, quotas, and compatible parameters depend on NVIDIA.
 
@@ -221,3 +221,13 @@ The [evaluation sandbox](docs/SANDBOX.md) uses disposable Docker containers with
 ```
 
 This renders a fictional read/edit/review transcript without calling a model or changing project files. The design takes cues from [Pi's transcript/editor/footer separation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md), [Claude Code's keyboard-driven interaction](https://code.claude.com/docs/en/interactive-mode), and the [Codex CLI reference](https://github.com/openai/codex). Codine retains its own key bindings and approval rules; this is a visual redesign, not feature parity.
+
+## Model selection and file recovery
+
+With OpenRouter selected, `/model` opens the current tool-capable model catalog and `/model free` filters advertised free routes. The selection stays in the session; it does not reset spending. Use arrow keys and Space to select, Tab to reach the buttons, Enter to confirm, or Escape to cancel.
+
+`/changes` lists recent file-tool checkpoints. `/diff [ID]` compares a checkpoint's before-image with the current file. `/undo [ID]` previews restoring it and asks for approval; omit the ID for the newest checkpoint. Newer edits cause a refusal. This does not undo shell commands or external side effects. A successful undo informs the model in the conversation.
+
+The `replace_lines` tool is an alternative to exact substring editing. It requires an inclusive line range already read and the current file's SHA256. It preserves the same approval, stale-file, and checkpoint protections.
+
+See [PRACTICAL_RELEASE.md](docs/PRACTICAL_RELEASE.md) for a learning guide and an honest record of successful and failed live runs.

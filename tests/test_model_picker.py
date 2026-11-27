@@ -62,7 +62,7 @@ class ModelPickerTests(unittest.TestCase):
         import tempfile
         from codine.cli import main as cli_main
         with tempfile.TemporaryDirectory() as project, patch('codine.cli.NvidiaProvider') as provider, redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(cli_main(['--project', project, '--prompt', '/model']), 0)
+            self.assertEqual(cli_main(['--provider', 'nvidia', '--project', project, '--prompt', '/model']), 0)
         provider.return_value.complete.assert_not_called()
         self.assertIn('NVIDIA:', output.getvalue())
 

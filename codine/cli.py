@@ -29,13 +29,16 @@ HELP = '''Commands
   /clear                Omit old history from new requests; keep archive
   /compact              Keep the latest 3 whole turns in active context
   /restart              Save, check, restart, and resume with updated code
-  /model [ID]           Show/change NVIDIA model; compatibility varies
+  /model [ID|free]       Pick an OpenRouter model, or set a model ID
   /details              Full output of the last tool
+  /changes              List recent file-tool checkpoints
+  /diff [ID]            Compare checkpoint with the current file
+  /undo [ID]            Preview and restore one file-tool change
   /thinking             Toggle display of reasoning (generation unchanged)
   /permissions MODE     ask or auto-edit; commands/core edits still ask
   exit, /quit           Save and quit
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
-Tools: list_files, read_file, search, write_file, edit_file, check_python,
+Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
        run_command, request_restart.
 Commands run as your user, not in a sandbox. Inspect every command approval.
 '''
@@ -98,6 +101,21 @@ def command(text, agent, workspace, ui):
                 ledger.settle(amount)
                 agent.save()
             ui.write(ledger.summary())
+    elif name == '/changes':
+        from .changes import ChangeStore
+        records = ChangeStore(workspace.root).list()
+        ui.write('\n'.join(f"{row['id']}  {row['path']}" for row in records) or 'No file-tool checkpoints.')
+        ui.write('Checkpoints cover file tools only. /undo refuses files changed since the checkpoint.')
+    elif name == '/diff':
+        ui.write(workspace.show_change(argument or None))
+    elif name == '/undo':
+        result = workspace.undo(argument or None)
+        if result['status'] == 'undone':
+            session.messages.append({'role': 'user', 'content': f"[Terminal action] I undid a file-tool change to {result['path']}. Read its current contents before further edits; older tool results describe the earlier state."})
+            agent.save()
+            ui.write('Undone ' + result['path'])
+        else:
+            ui.write(result.get('message', result['status'].capitalize()))
     elif name == '/details':
         ui.details()
     elif name == '/session':
@@ -134,6 +152,27 @@ def command(text, agent, workspace, ui):
         agent.save()
         ui.write('Active context keeps the latest 3 complete turns; archive retained.' if changed else 'Already at 3 turns or fewer.')
     elif name == '/model':
+        if agent.config.provider == 'openrouter' and ui.interactive and argument in ('', 'free'):
+            from .router_catalog import metadata
+            from model_picker import free_tool_models, select_model
+            from .router_catalog import tool_models
+            ui.write('Loading current OpenRouter catalog (no inference charge)…')
+            records = metadata('models')
+            if argument == 'free':
+                choices = free_tool_models(records)
+            else:
+                available = {row['id'] for row in tool_models(records)}
+                choices = [row for row in records if row.get('id') in available]
+                choices.sort(key=lambda row: row['id'])
+            if not choices:
+                raise ValueError('No matching tool-capable models are available.')
+            chosen = select_model(choices, session.model)
+            if chosen is None:
+                ui.write('Model unchanged.')
+                return
+            argument = chosen
+        if argument == 'free':
+            raise ValueError('/model free requires interactive OpenRouter mode.')
         if argument:
             if any(char.isspace() for char in argument) or len(argument) > 200:
                 raise ValueError('Provide one model ID.')
@@ -191,7 +230,7 @@ def main(argv=None):
                 session.model = args.model
         store.save(session)
         provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
-        workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT)
+        workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)

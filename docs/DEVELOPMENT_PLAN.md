@@ -1,5 +1,7 @@
 # Codine: documentation-led development plan
 
+Current status (27 November): the practical release and bounded live evaluation stage are implemented; see [PRACTICAL_RELEASE.md](PRACTICAL_RELEASE.md). The plan below preserves the original implementation sequence.
+
 24 November 2026. Next release: **offline foundations, then paid evaluations**.
 
 ## Outcome
@@ -99,7 +101,7 @@ Allocation remains $0.25 smoke, $0.75 baseline, $1.50 focused improvements, $1 f
 | Capability | Before implementing |
 |---|---|
 | Summarizing compaction | Establish baseline solve rate; measure summary cost and lost facts |
-| Checkpoint/rewind | Track before/after identities and prove conflict-safe restoration; shell side effects need separate treatment |
+| Full checkpoint/rewind | Single-file before-images, diff, and conflict-safe undo now exist; multi-file transactions and shell effects remain outside scope |
 | Nested instructions and skill discovery | Specify precedence, trust, budgets, and invalid-resource handling |
 | Hooks/MCP/plugins | Establish restricted interfaces and lifecycle/error tests |
 | Subagents/background execution | Prove cancellation, shared budget accounting, and conflict isolation |
@@ -126,3 +128,7 @@ The single-file Python Docker executor is now implemented and tested; see `SANDB
 ### Follow-up: multi-file staging
 
 Implemented an explicit Python-only staging manifest and a Docker-only repository suite. Two development tasks exercise package imports and coordinated edits to two modules. Tests cover excluded files, symlinks, path validation, missing dependencies, and end-to-end scripted repairs. This remains infrastructure verification, not a model score. Next: broaden repository task diversity and add controlled failure/recovery scenarios before the final API stage. Dependency installation and arbitrary build commands remain deferred.
+
+### Follow-up: measured practical release (27 November)
+
+The user authorized iterative live OpenRouter evaluations. Implemented a shared locked spending ledger, Docker-only live candidate checks, current model selection, file checkpoints with `/diff` and `/undo`, and recovery scenarios. The first baseline completed 14/14 tasks. A subsequent repeat exposed exact-edit quoting failures and context exhaustion; hash-guarded `replace_lines` and single-file search were added, then tested without weakening exact matching. Reports preserve earlier failures. See `PRACTICAL_RELEASE.md` and `../VERIFICATION.md` for costs, final checks, and limitations. Pi parity, arbitrary sandboxed builds, streaming OpenRouter reasoning, skills/extensions, and session trees are not claimed.

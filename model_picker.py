@@ -40,19 +40,25 @@ def fetch_free_models(client):
 
 
 def model_label(model):
-    name = model.get("name") or model["id"]
-    context = model.get("context_length")
-    context_label = f"{context:,} context" if isinstance(context, int) else "context unknown"
-    label = f"{name} | {model['id']} | {context_label}"
-    return "".join(character if character.isprintable() else " " for character in label)
+    context = model.get('context_length')
+    context_label = f'{context:,} ctx' if isinstance(context, int) else 'context unknown'
+    pricing = model.get('pricing', {})
+    try:
+        incoming = Decimal(str(pricing['prompt'])) * 1000000
+        outgoing = Decimal(str(pricing['completion'])) * 1000000
+        rates = f'${incoming:g} / ${outgoing:g} per 1M in/out'
+    except (KeyError, InvalidOperation, ValueError):
+        rates = 'pricing unknown'
+    label = f"{model['id']} | {rates} | {context_label}"
+    return ''.join(char if char.isprintable() else ' ' for char in label)
 
 
 def build_model_dialog(models, current_model):
     ids = {model["id"] for model in models}
     dialog = radiolist_dialog(
-        title="Codine /model — Free OpenRouter models",
+        title="Codine /model",
         text=(
-            "Free text models with tool calling. Provider quotas still apply.\n"
+            "Tool-capable models. Check displayed prices; provider quotas apply.\n"
             "Up/Down: move  Space: select  Tab: buttons  Enter: confirm\n"
             "Esc: cancel. Selection applies to this session only."
         ),
@@ -61,10 +67,10 @@ def build_model_dialog(models, current_model):
         ok_text="Use model",
         cancel_text="Cancel",
         style=Style.from_dict({
-            "dialog": "bg:#16202a",
-            "dialog frame.label": "bg:#16202a #62d6c4 bold",
-            "radio-selected": "#62d6c4 bold",
-            "button.focused": "bg:#62d6c4 #16202a",
+            "dialog": "noreverse",
+            "dialog frame.label": "bold",
+            "radio-selected": "ansiyellow bold",
+            "button.focused": "reverse",
         }),
     )
 

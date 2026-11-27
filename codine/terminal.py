@@ -16,6 +16,7 @@ from prompt_toolkit.utils import get_cwidth
 COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
+    '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
     '/help': 'Explore commands', '/paste': 'Write a multiline task',
     '/session': 'Current session details', '/sessions': 'Browse saved sessions',
     '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
@@ -27,7 +28,7 @@ COMMANDS = {
 }
 TOOL_LABELS = {
     'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
-    'write_file': 'Create file', 'edit_file': 'Edit file', 'check_python': 'Check Python',
+    'write_file': 'Create file', 'edit_file': 'Edit file', 'replace_lines': 'Replace lines', 'check_python': 'Check Python',
     'run_command': 'Run command', 'request_restart': 'Prepare restart',
 }
 STYLE = Style.from_dict({
@@ -283,7 +284,7 @@ class Terminal:
             # Use only a small action label, never dump edit bodies or full arguments.
             try:
                 args = json.loads(text['function']['arguments'])
-                target = args.get('path', args.get('pattern', '')) if isinstance(args, dict) else ''
+                target = args.get('path', args.get('query', '')) if isinstance(args, dict) else ''
                 self.tool_target = self.clean(target).replace('\n', ' ').replace('\t', ' ')
             except (KeyError, TypeError, ValueError):
                 self.tool_target = ''

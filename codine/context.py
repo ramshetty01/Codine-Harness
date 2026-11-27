@@ -12,12 +12,25 @@ def user_boundaries(session):
             if index >= session.context_start and message['role'] == 'user']
 
 
+def request_message(message):
+    """Keep provider reasoning details intact, omit only their exact text duplicate."""
+    projected = dict(message)
+    details = projected.get('reasoning_details')
+    reasoning = projected.get('reasoning')
+    if (isinstance(reasoning, str) and isinstance(details, list) and details and
+            all(isinstance(item, dict) and item.get('type') == 'reasoning.text' and
+                isinstance(item.get('text'), str) for item in details) and
+            ''.join(item['text'] for item in details) == reasoning):
+        projected.pop('reasoning')
+    return projected
+
+
 def project_context(session, schemas, budget, extra_system=""):
     boundaries = user_boundaries(session)
     start = boundaries[0] if boundaries else len(session.messages)
-    fixed = len(json.dumps(schemas)) + len(json.dumps(session.messages[0]))
+    fixed = len(json.dumps(schemas, ensure_ascii=False))
     while True:
-        messages = [dict(session.messages[0])] + session.messages[start:]
+        messages = [dict(session.messages[0])] + [request_message(message) for message in session.messages[start:]]
         messages[0]['content'] += extra_system
         if start > 1:
             messages[0]['content'] += '\nOlder conversation turns are omitted from this request. Do not invent their contents; the full archive remains in the local session.'

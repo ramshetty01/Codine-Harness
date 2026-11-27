@@ -21,6 +21,7 @@ class Config:
     provider: str = "nvidia"
     budget_usd: str = "3.50"
     request_budget_usd: str = "0.25"
+    router_max_price: dict | None = None
 
     @classmethod
     def load(cls, project, provider=None, model=None):

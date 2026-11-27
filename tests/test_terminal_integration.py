@@ -74,7 +74,7 @@ class Fake:
         emit('text', 'Task finished')
         return {'role':'assistant','content':'Task finished'}, 'stop', None
 cli.NvidiaProvider = Fake
-raise SystemExit(cli.main())
+raise SystemExit(cli.main(['--provider','nvidia']))
 '''
         with tempfile.TemporaryDirectory() as directory:
             capture = Path(directory) / 'capture.json'
@@ -89,6 +89,20 @@ raise SystemExit(cli.main())
                 terminal.send(b'no\r')
                 terminal.until(b'Task finished')
                 self.assertFalse((Path(directory) / 'created.txt').exists())
+                offset = len(terminal.output)
+                terminal.send(b'Create it now\r')
+                terminal.until(b'Approve? Type yes:', start=offset)
+                terminal.send(b'yes\r')
+                terminal.until(b'Task finished', start=offset)
+                self.assertTrue((Path(directory) / 'created.txt').exists())
+                offset = len(terminal.output)
+                terminal.send(b'/undo\r')
+                terminal.until(b'Approve? Type yes:', start=offset)
+                terminal.send(b'yes\r')
+                terminal.until(b'Undone created.txt', start=offset)
+                self.assertFalse((Path(directory) / 'created.txt').exists())
+                snapshot = json.loads(next((Path(directory) / '.codine/sessions').glob('*.json')).read_text())
+                self.assertIn('[Terminal action]', snapshot['messages'][-1]['content'])
                 terminal.send(b'exit\r')
                 terminal.until(b'Goodbye!')
                 self.assertEqual(terminal.process.wait(timeout=5), 0)
@@ -97,7 +111,7 @@ raise SystemExit(cli.main())
 
     def test_slash_menu_completion_in_narrow_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
-            terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--project', directory], APP_ROOT, columns=52)
+            terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--provider', 'nvidia', '--project', directory], APP_ROOT, columns=52)
             try:
                 terminal.until('›'.encode())
                 terminal.send(b'/he')
@@ -112,7 +126,7 @@ raise SystemExit(cli.main())
 
     def test_actual_restart_restores_same_session_and_project(self):
         with tempfile.TemporaryDirectory() as directory:
-            terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--project', directory], APP_ROOT)
+            terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--provider', 'nvidia', '--project', directory], APP_ROOT)
             try:
                 terminal.until('›'.encode())
                 sessions = list((Path(directory) / '.codine/sessions').glob('*.json'))

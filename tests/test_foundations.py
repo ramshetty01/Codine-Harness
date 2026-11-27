@@ -64,7 +64,7 @@ class FoundationsTests(unittest.TestCase):
         self.ws.mode = 'plan'
         registry = build_registry(self.ws, lambda: self.fail('restart must be blocked'))
         self.assertEqual({item['function']['name'] for item in registry.schemas()}, {'read_file','list_files','search','check_python'})
-        for name, args in [('write_file', {'path':'new.py','content':'bad'}), ('run_command', {'argv':['python','-c','print(1)']}), ('request_restart', {})]:
+        for name, args in [('write_file', {'path':'new.py','content':'bad'}), ('run_command', {'argv':['python','-c','print(1)']}), ('replace_lines', {'path':'a.py','start_line':1,'end_line':1,'new_text':'x','expected_sha256':'a'*64}), ('request_restart', {})]:
             result = registry.execute(tool(name,args)['tool_calls'][0])
             self.assertIn('disabled', result)
         self.assertFalse((self.root/'new.py').exists())
@@ -172,7 +172,7 @@ class FoundationsTests(unittest.TestCase):
     def test_json_cli_command_no_network_and_valid_framing(self):
         out=io.StringIO()
         with patch.object(socket.socket,'connect',side_effect=AssertionError('network forbidden')), redirect_stdout(out):
-            code=main(['--project',str(self.root),'--json','--plan','--prompt','/instructions'])
+            code=main(['--provider','nvidia','--project',str(self.root),'--json','--plan','--prompt','/instructions'])
         rows=[json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual(code,0)
         self.assertEqual(rows[-1]['data']['outcome'],'command')
@@ -183,7 +183,7 @@ class FoundationsTests(unittest.TestCase):
         out=io.StringIO()
         fake.close=lambda:None
         with patch('codine.cli.NvidiaProvider',return_value=fake), redirect_stdout(out):
-            code=main(['--project',str(self.root),'--json','--prompt','repeat'])
+            code=main(['--provider','nvidia','--project',str(self.root),'--json','--prompt','repeat'])
         rows=[json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual(code,1)
         self.assertEqual(rows[-1]['data']['outcome'],'loop_limit')
@@ -193,7 +193,7 @@ class FoundationsTests(unittest.TestCase):
     def test_json_restart_is_refused_without_process_replacement(self):
         out=io.StringIO()
         with patch('codine.cli.restart_process') as restart, redirect_stdout(out):
-            code=main(['--project',str(self.root),'--json','--prompt','/restart'])
+            code=main(['--provider','nvidia','--project',str(self.root),'--json','--prompt','/restart'])
         restart.assert_not_called()
         self.assertEqual(code,1)
         self.assertEqual(json.loads(out.getvalue().splitlines()[-1])['data']['outcome'],'failed')
