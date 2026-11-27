@@ -246,12 +246,12 @@ def build_registry(workspace, request_restart):
     string = {'type': 'string'}
     def integer(minimum, maximum):
         return {'type': 'integer', 'minimum': minimum, 'maximum': maximum}
-    add('list_files', 'List project files recursively; excludes credentials and generated directories. Narrow path if truncated.', workspace.list_files,
-        {'path': string, 'recursive': {'type': 'boolean'}, 'limit': integer(1, 2000)})
+    add('list_files', 'Find project files by basename/path glob (** supported). Honors bounded .gitignore rules, excludes credentials/links/generated directories. Narrow path/glob if truncated.', workspace.list_files,
+        {'path': string, 'recursive': {'type': 'boolean'}, 'limit': integer(1, 2000), 'glob': string, 'respect_ignore': {'type': 'boolean'}})
     add('read_file', 'Read a page of UTF-8 text with line numbers and SHA256. Follow next_page to read more, passing expected_sha256 from the previous page. Read the exact region before editing.', workspace.read_file,
         {'path': string, 'start_line': integer(1, 10000000), 'max_lines': integer(1, 2000), 'start_char': integer(0, 2000000), 'expected_sha256': string}, ('path',))
-    add('search', 'Search literal text in a project file or directory; returns bounded matching lines. Read before editing.', workspace.search,
-        {'query': string, 'path': string, 'limit': integer(1, 200)}, ('query',))
+    add('search', 'Search literal text or deadline-isolated regex in project files, optionally filtered by glob and case sensitivity. Honors .gitignore by default; bounded matches/bytes/scan. Read before editing.', workspace.search,
+        {'query': string, 'path': string, 'limit': integer(1, 200), 'glob': string, 'regex': {'type': 'boolean'}, 'case_sensitive': {'type': 'boolean'}, 'respect_ignore': {'type': 'boolean'}}, ('query',))
     add('write_file', 'Create a NEW project text file, with diff and approval. Cannot overwrite existing files.', workspace.write_file,
         {'path': string, 'content': string}, ('path', 'content'), effect='write')
     add('edit_file', 'Replace exactly one occurrence of old_text previously read in the CURRENT file version. Shows diff, requires approval by default, rejects stale edits.', workspace.edit_file,

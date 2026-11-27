@@ -66,25 +66,9 @@ class Workspace:
             os.close(descriptor)
         return data, data.decode("utf-8")
 
-    def list_files(self, path=".", recursive=True, limit=200):
-        directory = self.resolve(path, directory=True)
-        if not directory.is_dir():
-            raise ValueError("Directory does not exist.")
-        names = []
-        for base, dirs, files in os.walk(directory):
-            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not (Path(base) / d).is_symlink())
-            for name in sorted(files):
-                relative = (Path(base) / name).relative_to(self.root).as_posix()
-                try:
-                    self.resolve(relative)
-                except ValueError:
-                    continue
-                names.append(relative)
-                if len(names) > limit:
-                    return {"files": names[:limit], "truncated": True, "hint": "List a narrower directory."}
-            if not recursive:
-                break
-        return {"files": names, "truncated": False}
+    def list_files(self, path=".", recursive=True, limit=200, glob="*", respect_ignore=True):
+        from .repository_search import list_files
+        return list_files(self, path, recursive, limit, glob, respect_ignore)
 
     def read_file(self, path, start_line=1, max_lines=200, start_char=0, expected_sha256=None):
         target = self.resolve(path)
@@ -123,23 +107,9 @@ class Workspace:
         return {"path": path, "total_lines": len(lines), "sha256": fingerprint(data),
                 "content": "".join(output), "next_page": next_page}
 
-    def search(self, query, path=".", limit=50):
-        if not query:
-            raise ValueError("Search query cannot be empty.")
-        target = self.resolve(path, directory=True)
-        listing = {'files': [path], 'truncated': False} if target.is_file() else self.list_files(path, recursive=True, limit=2000)
-        matches = []
-        for relative in listing["files"]:
-            try:
-                _, content = self._read(self.resolve(relative))
-            except (ValueError, UnicodeError, OSError):
-                continue
-            for number, line in enumerate(content.splitlines(), 1):
-                if query in line:
-                    matches.append({"path": relative, "line": number, "text": line[:1000]})
-                    if len(matches) >= limit:
-                        return {"matches": matches, "truncated": True}
-        return {"matches": matches, "truncated": listing["truncated"]}
+    def search(self, query, path=".", limit=50, glob="*", regex=False, case_sensitive=True, respect_ignore=True):
+        from .repository_search import search
+        return search(self, query, path, limit, glob, regex, case_sensitive, respect_ignore)
 
     def _core(self, target):
         if target in (self.root / 'AGENTS.md', self.root / 'CODINE.md'):
