@@ -18,7 +18,7 @@ For the automated Python/OS test matrix, see **[CI](docs/CI.md)**.
 
 For a standalone wheel, `codine --version`, upgrades, and uninstall instructions, see **[Installation](docs/INSTALLATION.md)**. The checkout workflow below remains supported.
 
-Python 3.11+ on macOS/Linux is the intended platform; verification used Python 3.14 on macOS. Windows is not supported by this version's POSIX locking and process-group code.
+The CI matrix covers Python 3.11–3.14 on macOS and Linux. Windows is not supported by this version's POSIX locking and process-group code.
 
 ```bash
 cd /Users/ramshetty/Desktop/ram-code/ramscode/codine
@@ -68,12 +68,12 @@ By default, the OpenAI Python SDK sends requests to **NVIDIA**, at `https://inte
 
 The terminal opens with a small `[/] codine` header, project path, and model. A plain `›` prompt sits above a quiet footer showing permission mode, tokens, and model. Colors inherit your terminal theme; amber marks input and review. Normal terminal scrollback is preserved. Session details are available with `/session`.
 
-Type `/` to open the command menu. Use arrow keys to browse and Tab to complete a command. Tool rows show the action and target file. Results distinguish success, declined actions, and failures; successful previews show up to three lines, failures up to eight. `/details` shows the full last tool result. Added diff lines are green, removed lines red, and approvals use an open review margin with every detail wrapped rather than truncated. Narrow windows wrap review details. Set `NO_COLOR=1` for monochrome output.
+Type `/` to open the command menu. Use arrow keys to browse and Tab to complete a command. Tool rows show the action and target file. Results distinguish success, declined actions, and failures; successful previews show up to three lines, failures up to eight. `/details` shows the last tool result; large results link to paged snapshots readable with `/artifact ID`. Added diff lines are green, removed lines red, and approvals use an open review margin with every detail wrapped rather than truncated. Narrow windows wrap review details. Set `NO_COLOR=1` for monochrome output.
 
 - **Enter** submits; **Alt+Enter** adds a line. A terminal supporting bracketed paste inserts a multiline paste as one editable prompt.
 - If your terminal does not preserve pasted lines, enter `/paste`, paste the task, then put `/end` on its own line.
 - Diffs appear before writes. Type **yes** to approve; any other answer declines.
-- Ctrl+C cancels the current input or model turn. Completed actions remain recorded. `exit`, `/quit`, or Ctrl+D at the editor saves and exits.
+- Ctrl+C interrupts the current input or turn, including approvals. Unsent editor drafts stay in memory; completed actions remain recorded. `exit`, `/quit`, or Ctrl+D at the editor saves and exits.
 - Reasoning display is hidden initially. `/thinking` toggles display; it does not change the model's thinking budget.
 
 Try:
@@ -110,21 +110,27 @@ Piped input is one message. Noninteractive approvals are denied; lines of a pipe
 | `/plan` | Read-only file tools; `/permissions ask` enables mutations again |
 | `/instructions` | Show bounded root AGENTS.md and CODINE.md project guidance |
 | `/budget` | Show OpenRouter session costs and pending reservation |
-| `/session`, `/sessions` | Show current session details / list saved IDs |
+| `/session`, `/sessions [query]` | Show current session / search and resume named sessions |
+| `/rename TITLE` | Name the current session |
+| `/tasks [clear]` | Inspect persistent task progress or explicitly clear the plan |
+| `/context` | Inspect active context, summary coverage and remaining estimates |
+| `/artifact ID [OFFSET]` | Read a saved tool-output page without a model request |
+| `/sandbox`, `/policy` | Inspect effective command isolation and user command rules |
+| `/jobs [ID]`, `/cancel ID` | Inspect background work/logs or request cancellation |
 | `/save` | Save immediately; saving is also automatic |
-| `/resume ID`, `/new` | Open saved history / start a new session |
+| `/resume [ID]`, `/new` | Open saved history (picker if no ID) / start a new session |
 | `/clear` | Remove old turns from active model context, keeping the disk archive |
 | `/compact` | Keep the most recent three complete turns in active context |
 | `/restart` | Save, validate, launch the same interpreter, and resume |
-| `/model [ID]` | Show or change the selected provider's model for this session |
+| `/model [ID\|free]` | Pick an OpenRouter model, filter free routes, or set an explicit ID |
 | `/thinking` | Toggle reasoning display |
 | `/details` | Show the full output from the most recent tool |
 | `/permissions ask` | Require approval for every file mutation |
-| `/permissions auto-edit` | Approve ordinary file edits for this process; still ask for core edits and commands |
+| `/permissions auto-edit` | Approve ordinary file edits; core edits still ask and commands follow user policy |
 | `/paste` | Collect lines until `/end` |
 | `exit`, `/quit` | Save and exit |
 
-There is no provider model-picker popup in the current runtime. `model_picker.py` and its standalone tests are retained as an earlier learning exercise. `/model ID` does not promise compatibility with every model. NVIDIA retains its Nemotron settings; OpenRouter uses complete non-streaming messages to preserve opaque reasoning metadata. Session provider identity is saved; start a new session to change providers.
+OpenRouter `/model` opens a model picker with advertised prices and capabilities; `/model free` filters zero-priced routes. `/model ID` does not promise compatibility with every model. NVIDIA retains its Nemotron settings; OpenRouter uses complete non-streaming messages to preserve opaque reasoning metadata. Session provider identity is saved; start a new session to change providers.
 
 ## Tools and limits
 
@@ -135,17 +141,21 @@ There is no provider model-picker popup in the current runtime. `model_picker.py
 | `search` | Literal text search with file/line results |
 | `write_file` | Create a new text file; never overwrite an existing one |
 | `edit_file` | Replace one unique exact occurrence in a region already read |
+| `replace_lines` | Replace a previously read line range with an expected SHA256 |
 | `check_python` | Parse syntax without executing |
+| `update_plan` | Save revisioned task progress without changing project files |
+| `read_artifact` | Page historical output and check file-source freshness |
 | `run_command` | Approved argv-array execution, timeout, bounded output, and exit code |
+| `start_job`, `job_status`, `cancel_job` | Start approved bounded background commands, inspect logs and cancel |
 | `request_restart` | Request approved process replacement after saving tool results |
 
-File tools exclude `.env` credentials, common key formats, Git internals, virtual environments, generated directories, and `.codine`. They reject escaping paths and symlinks. Editing hard-linked files is refused. Text files are limited to 2 MB; each read page carries at most 24,000 content characters. The next-page cursor handles even a single very long line. Pass the returned hash as `expected_sha256` on later pages to detect a changed file.
+File tools exclude `.env` credentials, common key formats, Git internals, virtual environments, generated directories, and `.codine`. They reject escaping paths and symlinks. Reading or editing hard-linked files is refused. Text files are limited to 2 MB; each read page carries at most 24,000 content characters. The next-page cursor handles even a single very long line. Pass the returned hash as `expected_sha256` on later pages to detect a changed file.
 
 Edits require a fresh read and the exact changed region to have been returned. After an edit, re-read before editing another region. A second file check after approval protects against ordinary concurrent edits. These checks are not an OS sandbox or protection against a malicious process racing filesystem operations.
 
-Commands run with your user permissions. `shell=False` prevents automatic shell interpolation, but an explicitly approved interpreter or shell can still execute arbitrary code. Commands may access files and network outside the project. The child environment omits API credentials; that does not prevent a command from reading `.env` itself. Inspect each command before approving it. There is no delete tool, but approved edits and commands can still break the application.
+The default host executor runs with your user permissions. `shell=False` prevents automatic shell interpolation, but approved interpreters can still execute arbitrary code and access files/network outside the project. `--executor docker` instead runs an explicitly approved immutable snapshot without host mounts or network by default. User-owned execution profiles can permit narrowly scoped network/credential access with fresh approval; credential-bearing output is withheld. File tools remain host operations. `/sandbox` reports the effective mode. There is no delete tool yet, but approved edits and host commands can still break the application.
 
-Command timeout is 30 seconds by default, at most 120. Results retain up to 12,000 bytes from each output stream. More than 1 MB of total output stops the process group. The model loop defaults to 12 steps; provider network timeout is 120 seconds, with automatic API retries disabled.
+Foreground command timeout is 30 seconds by default, at most 120. Host results retain up to 12,000 bytes per stream and stop at 1 MB total; Docker has its own bounded output/resource policy. Background jobs default to 300 seconds and permit up to 3600, with four active jobs and bounded logs. Output streams live within these limits. The model loop defaults to 12 steps; provider network timeout is 120 seconds. Inference retries remain disabled when billing/replay safety is unknown. Automatic semantic compaction uses the same accounted provider path; it can incur an additional model request. See [compaction](docs/SEMANTIC_COMPACTION.md), [artifacts](docs/ARTIFACTS.md), [jobs](docs/BACKGROUND_JOBS.md), and [run states](docs/RUN_STATES.md) for limits.
 
 ## Sessions and restarting
 

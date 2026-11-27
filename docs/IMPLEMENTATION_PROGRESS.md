@@ -9,6 +9,10 @@ Pi or Claude Code.
 ## Landed capabilities
 
 - Model-specific context estimates and output reservation, plus `/context`.
+- Accounted semantic compaction at complete tool boundaries, durable task plans,
+  immutable paged artifacts and explicit stale-source checks.
+- Named/searchable sessions, retained interrupted drafts and structured run states
+  that keep model completion claims distinct from verified task outcomes.
 - Explicit, hashed, bounded repository staging with excluded private paths.
 - Real Docker repository commands with output/timeout/resource boundaries.
 - Bounded dependency preparation with explicit setup-network opt-in and verified
@@ -17,6 +21,8 @@ Pi or Claude Code.
   with explainable decisions and protection from project environment redirection.
 - Adversarial regression fixes for linked-file read exposure and terminal control
   characters; these enforce boundaries rather than promise prompt-injection immunity.
+- Bounded streaming, explicit execution profiles for approved network/credential
+  access, and supervised background jobs with logs/cancellation/exit cleanup.
 - Normal terminal Docker selection, visible isolation, approved snapshots and
   execution settings preserved across restart/resume.
 - Installable wheel/sdist, `codine` entry point, isolated installed state and
@@ -31,7 +37,7 @@ Pi or Claude Code.
 
 ## Evidence and limits
 
-The integrated checkpoint passed 201 tests with optional Docker checks enabled,
+The integrated checkpoint passed 295 tests with optional Docker checks enabled,
 plus both repository fixtures and all five repository-derived command tasks. A fresh wheel passed startup, restart, resource/session checks and
 12 offline exercises outside the checkout with network access blocked. Five
 repository-derived command tasks passed their broken/reference checks; these are
@@ -55,8 +61,8 @@ the supported-platform matrix.
 | Milestone | Remaining acceptance work |
 |---|---|
 | M1 Representative tasks | Multi-language/multi-repository breadth, annotated incorrect edits/interventions, repeated controlled live comparisons |
-| M2 Sandboxed execution | Broader filesystem/network and file-operation policy scope, live output/cancellation and managed background jobs |
-| M3 Long-task reliability | Semantic/active-turn compaction, persistent task plans, artifact handling and consistent cancellation/retry states |
+| M2 Sandboxed execution | Complete generic file-operation policy rules and verify the full sandbox acceptance task |
+| M3 Long-task reliability | Live long-task/summary-quality acceptance and inference retries only with verified billing/replay safety |
 | M4 Daily terminal workflow | Steering/queues, richer repo navigation and changesets, session UX, streaming and shared interactive budgets |
 | M5 Customization | Hierarchical trusted configuration, skills/templates, reviewed memory and extension lifecycle |
 | M6 Integrations | MCP, SDK/RPC, deferred discovery, provider/auth integration and measured caching/fallback |
@@ -67,3 +73,17 @@ None of the eight milestones is complete merely because its first issues have
 landed. Close each milestone only after its issues and its end-to-end acceptance
 gate pass. Preserve user changes, credentials, local sessions and historical
 failed reports throughout further work.
+
+
+## Long-task checkpoint
+
+An offline stress attempt passed 300 turns, a 5,000-file repository, 50 child
+processes and 59 synthetic semantic summaries. All 601 archived messages remained
+valid; open descriptors were 4 before and after, with only 32 retained traced bytes
+in the repeated read loop. See [STRESS_TESTING.md](STRESS_TESTING.md) for scope.
+This is harness evidence, not live-model quality or indefinite leak-freedom.
+
+Provider failures now have sanitized classifications and recovery advice.
+Metadata GETs have bounded retries; inference retries remain disabled when charge
+or replay safety cannot be proven. A5 stays open for that explicit limitation.
+No live inference was used in this checkpoint either.
