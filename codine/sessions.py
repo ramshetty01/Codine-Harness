@@ -66,6 +66,8 @@ class Session:
     provider: str = "nvidia"
     billing: dict = field(default_factory=dict)
     execution: dict = field(default_factory=dict)
+    plan: list = field(default_factory=list)
+    plan_revision: int = 0
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -151,6 +153,10 @@ class SessionStore:
         self.active = None
 
     def save(self, session):
+        from .task_plan import validate_plan
+        validate_plan(session.plan)
+        if type(session.plan_revision) is not int or session.plan_revision < 0:
+            raise ValueError("Invalid plan revision.")
         validate_messages(session.messages)
         if session.project != str(self.project):
             raise ValueError("Session workspace mismatch.")
@@ -203,6 +209,10 @@ class SessionStore:
             if session.billing:
                 from .budget import Budget
                 Budget(session.billing)
+            from .task_plan import validate_plan
+            validate_plan(session.plan)
+            if type(session.plan_revision) is not int or session.plan_revision < 0:
+                raise ValueError("Invalid plan revision.")
             validate_messages(session.messages)
             if type(session.context_start) is not int or not 1 <= session.context_start <= len(session.messages):
                 raise ValueError("Invalid context boundary.")

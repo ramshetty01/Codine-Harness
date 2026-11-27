@@ -147,7 +147,7 @@ def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
 
 
 def build_registry(workspace, request_restart):
-    registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect == "read")
+    registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect in ("read", "plan"))
     def add(name, description, handler, properties, required=(), effect="read"):
         registry.register(ToolSpec(name, description, {'type': 'object', 'properties': properties,
                                 'required': list(required), 'additionalProperties': False}, handler, effect))

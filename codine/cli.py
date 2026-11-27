@@ -31,6 +31,7 @@ HELP = '''Commands
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
+  /tasks [clear]        Inspect saved task progress; clear starts a new plan
   /context              Inspect active context and estimated remaining space
   /compact              Keep the latest 3 whole turns in active context
   /restart              Save, check, restart, and resume with updated code
@@ -167,6 +168,13 @@ def command(text, agent, workspace, ui):
         session.context_start = len(session.messages)
         agent.save()
         ui.write('Active context cleared. The full session archive remains on disk.')
+    elif name == '/tasks':
+        from .task_plan import clear_plan, format_plan
+        if argument == 'clear':
+            clear_plan(agent)
+        elif argument:
+            raise ValueError('Usage: /tasks or /tasks clear')
+        ui.write(format_plan(agent.session))
     elif name == '/context':
         ui.write(format_context(inspect_context(agent)))
     elif name == '/compact':
@@ -278,6 +286,8 @@ def main(argv=None):
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
+        from .task_plan import register_plan_tool
+        register_plan_tool(agent.registry, agent)
         ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))
