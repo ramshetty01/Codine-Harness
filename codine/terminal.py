@@ -14,6 +14,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
     '/export': 'Review and export a redacted transcript', '/import': 'Review and import historical conversation',
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
@@ -28,7 +29,7 @@ COMMANDS = {
     '/session': 'Current session details', '/sessions': 'Browse saved sessions',
     '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
     '/save': 'Save your session', '/clear': 'Clear active context; keep archive',
-    '/compact': 'Keep the latest three turns in context',
+    '/compact': 'Summarize older context while retaining the archive',
     '/restart': 'Check code, restart, and resume', '/model': 'Show or change model',
     '/thinking': 'Show or hide reasoning', '/details': 'Full output of the last tool',
     '/permissions': 'Choose ask or auto-edit', '/quit': 'Save and exit',
