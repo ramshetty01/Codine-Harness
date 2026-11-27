@@ -14,7 +14,7 @@ classifiers = [
 ]
 
 [project.scripts]
-codine = "codine.cli:main"
+codine = "codine.launcher:main"
 
 [tool.setuptools]
 packages = ["codine"]

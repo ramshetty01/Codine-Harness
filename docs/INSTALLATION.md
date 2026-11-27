@@ -1,6 +1,6 @@
 # Install and maintain Codine
 
-Codine requires Python 3.11+ on macOS or Linux. Windows is currently unsupported because sessions and commands use POSIX locking/process controls. The distribution is named `codine-harness`; its terminal command is `codine` and its Python module is `codine`. This repository does not claim a published PyPI release.
+Codine requires Python 3.11+ on macOS or Linux; Python 3.11–3.14 are maintained in CI. See [the platform policy](PLATFORMS.md) for tested OS versions and experimental WSL2 status. Windows is currently unsupported because sessions and commands use POSIX locking/process controls. The distribution is named `codine-harness`; its terminal command is `codine` and its Python module is `codine`. This repository does not claim a published PyPI release.
 
 ## Build and install a wheel
 
