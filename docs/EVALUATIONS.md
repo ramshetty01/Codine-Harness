@@ -123,3 +123,23 @@ but has no container identity. Retain the source checkout/wheel, task fixtures,
 and Docker image alongside reports: fingerprints identify inputs, not reconstruct
 them. Existing version-1 reports remain historical evidence without retroactive
 provenance. No model requests are required to verify manifest behavior.
+
+### Controlled repeated comparisons (Q4)
+
+Run each condition at least twice with distinct report filenames. Keep the model,
+selected tasks, request settings, dependencies and execution image fixed; vary
+only the harness source between conditions. Use the same budget guard for every
+paid run. Never rerun inference solely to fill a report when the budget is unknown.
+
+```bash
+python -m codine.compare_evals --baseline before1.json before2.json --candidate after1.json after2.json
+```
+
+This offline command rejects missing task results, mismatched controls, mixed
+source versions within a condition and invalid provenance. It reports per-task
+regressions/improvements, pass-count range and sample standard deviation, mean
+elapsed time, known spend and unknown-cost runs. It cannot prove that reports
+represent independent runs or that a remote provider kept the model unchanged.
+Do not copy one report to simulate repetition. Two runs are an initial diagnostic,
+not a statistically reliable superiority claim. Synthetic tests validate this
+comparison tool; live repeated comparisons remain an evaluation gate.
