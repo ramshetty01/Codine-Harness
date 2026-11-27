@@ -69,6 +69,46 @@ class GitAwarenessTests(unittest.TestCase):
         self.inspector.diff('app.py')
         self.assertFalse(marker.exists())
 
+    def test_clean_and_process_filters_never_execute_during_status_or_capture(self):
+        marker = self.root / 'FILTER_EXECUTED'
+        helper = self.root / 'filter-helper.sh'
+        helper.write_text('#!/bin/sh\ntouch "' + str(marker) + '"\nexit 1\n')
+        helper.chmod(0o755)
+        for handler in ('clean', 'process'):
+            with self.subTest(handler=handler):
+                self.git('config', '--remove-section', 'filter.evil') if handler == 'process' else None
+                self.git('config', 'filter.evil.' + handler, str(helper))
+                self.git('config', 'filter.evil.required', 'true')
+                (self.root / '.gitattributes').write_text('app.py filter=evil\n')
+                (self.root / 'app.py').write_text('value = 2\n')
+                index = (self.root / '.git/index').read_bytes()
+                config = (self.root / '.git/config').read_bytes()
+                self.session.git_baseline = {}
+                self.inspector.capture('session_start')
+                self.assertTrue(self.inspector.status()['repository'])
+                self.assertIn('+value = 2', self.inspector.diff('app.py')['diff'])
+                self.assertFalse(marker.exists())
+                self.assertEqual(index, (self.root / '.git/index').read_bytes())
+                self.assertEqual(config, (self.root / '.git/config').read_bytes())
+
+    def test_included_filter_and_unsupported_driver_names_fail_safely(self):
+        marker = self.root / 'FILTER_EXECUTED'
+        helper = self.root / 'filter-helper.sh'
+        helper.write_text('#!/bin/sh\ntouch "' + str(marker) + '"\nexit 1\n')
+        helper.chmod(0o755)
+        included = self.root / 'included-config'
+        included.write_text('[filter "Included.Driver"]\nclean = ' + str(helper) + '\nrequired = true\n')
+        self.git('config', 'include.path', str(included))
+        (self.root / '.gitattributes').write_text('app.py filter=Included.Driver\n')
+        (self.root / 'app.py').write_text('value = 2\n')
+        self.inspector.status()
+        self.assertFalse(marker.exists())
+        included.write_text('[filter "evil=name"]\nclean = ' + str(helper) + '\n')
+        (self.root / '.gitattributes').write_text('app.py filter=evil=name\n')
+        with self.assertRaisesRegex(ValueError, 'Unsupported filter driver name'):
+            self.inspector.status()
+        self.assertFalse(marker.exists())
+
     def test_session_roundtrip_and_subdirectory(self):
         self.inspector.capture()
         store = SessionStore(self.root)

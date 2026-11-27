@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import shutil
@@ -29,7 +30,7 @@ def validate_baseline(value):
         raise ValueError('Invalid Git baseline entries.')
 
 
-def git_read(root, args, *, limit=2_000_000, timeout=5):
+def _git_read(root, args, *, limit=2_000_000, timeout=5, overrides=()):
     git = shutil.which('git', path=os.defpath)
     if not git:
         raise GitError('Git is unavailable.')
@@ -38,7 +39,7 @@ def git_read(root, args, *, limit=2_000_000, timeout=5):
            'GIT_TERMINAL_PROMPT': '0', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_ATTR_NOSYSTEM': '1'}
     command = [git, '--no-pager', '--no-optional-locks', '--literal-pathspecs',
                '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
-               '-c', 'core.untrackedCache=false', '-c', 'color.ui=false', *args]
+               '-c', 'core.untrackedCache=false', '-c', 'color.ui=false', *overrides, *args]
     process = subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, errors = bytearray(), 0
@@ -72,6 +73,46 @@ def git_read(root, args, *, limit=2_000_000, timeout=5):
         process.wait()
         process.stdout.close()
         process.stderr.close()
+
+
+def git_read(root, args, *, limit=2_000_000, timeout=5):
+    """Disable every configured conversion driver before inspecting worktree data.
+
+    Status may run clean/process filters to hash files. Config name discovery is
+    read-only and cannot itself invoke those filters; no command values are exposed.
+    Unexpected names/oversized configuration fail closed rather than omit drivers.
+    """
+    started = time.monotonic()
+    configured = _git_read(root, ['config', '--includes', '--null', '--name-only',
+                                  '--get-regexp', r'^filter\.'], limit=65536, timeout=timeout)
+    if configured['code'] not in (0, 1) or configured['truncated']:
+        raise GitError('Cannot safely inspect repository filter configuration.')
+    drivers = set()
+    try:
+        keys = configured['data'].decode('utf-8').split('\0')
+    except UnicodeError as error:
+        raise GitError('Unsupported repository filter configuration encoding.') from error
+    for key in keys:
+        if not key: continue
+        # Git lowercases section/variable names while subsection names retain case.
+        if not key.startswith('filter.') or '.' not in key[7:]:
+            raise GitError('Unsupported repository filter configuration key.')
+        driver, variable = key[7:].rsplit('.', 1)
+        if not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,256}', driver):
+            raise GitError('Unsupported filter driver name; inspection stopped before running Git operations.')
+        if variable in ('clean', 'smudge', 'process', 'required'):
+            drivers.add(driver)
+    if len(drivers) > 128:
+        raise GitError('Repository has too many conversion filters to inspect safely.')
+    overrides = []
+    for driver in sorted(drivers):
+        for variable in ('clean', 'smudge', 'process'):
+            overrides.extend(['-c', f'filter.{driver}.{variable}='])
+        overrides.extend(['-c', f'filter.{driver}.required=false'])
+    remaining = timeout - (time.monotonic() - started)
+    if remaining <= 0:
+        raise GitError('Git inspection exceeded its time limit.')
+    return _git_read(root, args, limit=limit, timeout=remaining, overrides=overrides)
 
 
 class GitInspector:

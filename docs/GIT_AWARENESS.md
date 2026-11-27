@@ -11,3 +11,16 @@ File access exclusions and configured permissions apply to inspection. Automatic
 A missing Git installation does not prevent CLI startup. Non-repository projects remain usable. Syntax and offline tests do not measure model quality.
 
 References: [Git porcelain status](https://git-scm.com/docs/git-status), [Git diff](https://git-scm.com/docs/git-diff).
+
+Conversion filters are disabled as well as hooks, filesystem monitors, external
+diff and textconv helpers. Before each inspection, a bounded read-only Git config
+query enumerates conversion-driver names (including included configuration), then
+command-scoped overrides clear `clean`, `smudge` and `process` and set `required`
+false. No filter command values are displayed or persisted. Oversized discovery,
+unsupported driver names or config errors fail closed. The discovery and operation
+share the existing deadline. Tests reproduce clean/process execution attempts at
+automatic baseline capture and prove marker helpers never run and the Git index
+and config remain unchanged. This is not protection against a separate hostile
+process rewriting Git configuration concurrently between discovery and execution;
+the workspace is not an OS sandbox and repository internals remain excluded from
+model file tools.
