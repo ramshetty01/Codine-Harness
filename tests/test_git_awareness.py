@@ -116,3 +116,20 @@ class GitAwarenessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.inspector.diff('app.py', staged=True)
         self.assertNotIn('app.py', [row['path'] for row in self.inspector.status()['changes']])
+
+    def test_new_session_without_git_clears_edit_permissions(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from codine.cli import command
+        store = SessionStore(self.root)
+        self.addCleanup(store.close)
+        agent = SimpleNamespace(session=self.session, store=store, restart_requested=False)
+        agent.save = lambda: store.save(agent.session)
+        agent.git_inspector = GitInspector(self.ws, lambda: agent.session, agent.save)
+        self.ws.read_file('app.py')
+        old = agent.session.id
+        with patch('codine.git_awareness.shutil.which', return_value=None):
+            command('/new', agent, self.ws, Mock())
+        self.assertNotEqual(agent.session.id, old)
+        self.assertEqual(self.ws.read_versions, {})
+        self.assertEqual(self.ws.read_ranges, {})
