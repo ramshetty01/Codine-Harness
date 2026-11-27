@@ -14,7 +14,9 @@ import tempfile
 import time
 
 from .agent import Agent, SYSTEM
-from .config import APP_ROOT, Config, Redactor
+from .config import Config, Redactor
+from .paths import eval_resource, STATE_ROOT
+from .provenance import evaluation_manifest
 from .sessions import Session, SessionStore, validate_messages
 from .tools import build_registry
 from .workspace import Workspace
@@ -143,12 +145,13 @@ def main(argv=None):
         executor = DockerSandbox(args.image)
 
     filename = 'repository_tasks.json' if args.suite == 'repository' else 'tasks.json'
-    tasks = json.loads((APP_ROOT / 'evals' / filename).read_text())['tasks']
+    tasks = json.loads(eval_resource(filename).read_text())['tasks']
     selected = [task for task in tasks if args.split == 'all' or task['split'] == args.split]
     if not selected:
         parser.error('No tasks match the selected suite and split.')
+    provenance = evaluation_manifest(selected, mode='offline-scripted', image=executor.image if executor else None, config=Config(Path.cwd()))
     results = [run_case(task, executor) for task in selected]
-    report = {'version': 1, 'suite': args.suite, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
+    report = {'version': 2, 'provenance': provenance, 'suite': args.suite, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
               'meaning': 'Harness/grader verification only; NOT model solve rate.',
               'passed': sum(row['passed'] for row in results), 'total': len(results), 'results': results}
     path = Path(args.report)

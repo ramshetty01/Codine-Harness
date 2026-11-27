@@ -66,6 +66,10 @@ agent=SimpleNamespace(save=lambda:None, emit=lambda *args:None,
 restart_process(agent,execute=lambda program,argv:calls.append(argv))
 assert calls[0][1:3] == ['-m','codine']
 '''])
+        print(run([python, '-m', 'codine.evals', '--offline']).strip())
+        report = json.loads((project / '.codine/evals/offline.json').read_text())
+        assert report['passed'] == report['total'] == 12
+        assert report['provenance']['source']['files']
         print('Installed wheel: imports, resources, offline startup, session location, and restart passed; network blocked.')
 
 

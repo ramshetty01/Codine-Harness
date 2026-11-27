@@ -104,3 +104,22 @@ The shared ledger is `.codine/evals/budget.json` under the harness checkout. Its
 Reports retain failed attempts. They include task outcomes, returned values, actual known costs, pending reservations, timings, tool errors, and (in the current format) candidate files and conversation traces. A run may stop before all selected tasks; compare `selected_tasks` with the result rows. Traces stay local and ignored by Git. The interactive `/budget` is session-scoped and distinct from this evaluation ledger.
 
 [The practical release guide](PRACTICAL_RELEASE.md) records the evaluated models, observed failures, targeted changes, and interpretation limits.
+
+### Reproducing a report (Q3)
+
+New offline and live reports use version 2 and contain a `provenance` manifest
+captured before execution. SHA-256 identities cover the installed harness Python
+modules, every selected task specification (including private grading data), and
+an explicit allowlist of effective request settings. Reports contain task hashes,
+not reference answers from this manifest. Runtime metadata records Python,
+platform, dependency versions, and the resolved Docker image when used.
+The manifest's aggregate hash changes when any of these inputs changes.
+Credentials, environment files, session contents, and project paths are excluded.
+
+Compare manifest hashes before comparing scores. Different hashes require
+examining the component identities; a matching hash does not make a remote model
+deterministic or pin the provider's weights. Local execution records its runtime
+but has no container identity. Retain the source checkout/wheel, task fixtures,
+and Docker image alongside reports: fingerprints identify inputs, not reconstruct
+them. Existing version-1 reports remain historical evidence without retroactive
+provenance. No model requests are required to verify manifest behavior.

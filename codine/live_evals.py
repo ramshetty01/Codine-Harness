@@ -10,7 +10,9 @@ import time
 
 from .agent import Agent, SYSTEM
 from .budget import Budget, BudgetError, money
-from .config import APP_ROOT, Config, Redactor
+from .config import Config, Redactor
+from .paths import eval_resource, STATE_ROOT
+from .provenance import evaluation_manifest
 from .eval_budget import EvaluationBudget
 from .evals import grade
 from .provider import OpenRouterProvider
@@ -127,11 +129,11 @@ def main(argv=None):
         parser.error('Run budget must be $0.05–$0.75. Shared lifetime limit is $3.50.')
     if not args.model and args.reconcile_cost is None:
         parser.error('--model is required for live evaluation.')
-    cfg = Config.load(APP_ROOT, provider='openrouter', model=args.model or 'reconciliation-only')
+    cfg = Config.load(Path.cwd(), provider='openrouter', model=args.model or 'reconciliation-only')
     if not cfg.api_key:
         parser.error('Set OPENROUTER_API_KEY in .env; never paste it into command arguments.')
     if args.reconcile_cost is not None:
-        shared = EvaluationBudget(APP_ROOT / '.codine/evals/budget.json', cfg.api_key)
+        shared = EvaluationBudget(STATE_ROOT / 'evals/budget.json', cfg.api_key)
         try:
             shared.settle(args.reconcile_cost)
             print('Shared evaluation ledger reconciled. ' + shared.ledger.summary())
@@ -146,14 +148,15 @@ def main(argv=None):
                   budget_usd=str(cap), request_budget_usd='0.05',
                   router_max_price={'prompt': 1, 'completion': 2, 'request': 0})
     tasks_file = 'repository_tasks.json' if args.suite == 'repository' else 'tasks.json'
-    tasks = json.loads((APP_ROOT / 'evals' / tasks_file).read_text())['tasks']
+    tasks = json.loads(eval_resource(tasks_file).read_text())['tasks']
     selected = [task for task in tasks if not args.task or task['id'] in args.task]
     if not selected or (args.task and set(args.task) - {task['id'] for task in selected}):
         parser.error('Unknown or empty task selection.')
     executor = DockerSandbox(args.image)
-    shared = EvaluationBudget(APP_ROOT / '.codine/evals/budget.json', cfg.api_key)
+    shared = EvaluationBudget(STATE_ROOT / 'evals/budget.json', cfg.api_key)
     run_budget = Budget.create(str(cap), '0.05')
-    report = {'version': 1, 'mode': 'live', 'model': cfg.model, 'suite': args.suite,
+    provenance = evaluation_manifest(selected, mode='live', image=executor.image, config=cfg)
+    report = {'version': 2, 'provenance': provenance, 'mode': 'live', 'model': cfg.model, 'suite': args.suite,
               'image': executor.image, 'catalog_pricing': row, 'run_limit_usd': str(cap),
               'selected_tasks': [task['id'] for task in selected], 'results': []}
     path = Path(args.report)
