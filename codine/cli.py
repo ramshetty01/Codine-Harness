@@ -28,7 +28,7 @@ HELP = '''Commands
   /sandbox              Inspect effective command isolation and image
   /policy               Show user command rules and last explained decision
   /instructions         Show loaded root project guidance
-  /budget               Show session spending; reconcile AMOUNT if unknown
+  /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /paste                Read multiple lines until /end (fallback for paste)
   /session              Current session details
   /sessions [query]     Search and select saved sessions
@@ -119,8 +119,19 @@ def command(text, agent, workspace, ui):
             workspace._authorize_read(workspace.resolve(path.relative_to(workspace.root).as_posix())))
         ui.write(guidance or 'No permitted root AGENTS.md or CODINE.md loaded. Nested instructions are not auto-loaded.')
     elif name == '/budget':
-        if not session.billing:
-            ui.write('No OpenRouter ledger yet. It starts before the first OpenRouter request; NVIDIA usage is tokens only.')
+        if getattr(agent, 'shared_budget_path', None) is not None:
+            from .interactive_budget import budget_status, reconcile_shared
+            if argument:
+                parts = argument.split()
+                if len(parts) != 3 or parts[0] != 'reconcile':
+                    raise ValueError('Usage: /budget reconcile REQUEST_ID ACTUAL_USD_FROM_PROVIDER')
+                ui.write(reconcile_shared(agent, parts[1], parts[2]))
+            else:
+                ui.write(budget_status(agent))
+                if session.billing:
+                    ui.write(Budget(session.billing).summary())
+        elif not session.billing:
+            ui.write('No OpenRouter ledger yet. NVIDIA usage is tokens only.')
         else:
             ledger = Budget(session.billing)
             if argument:
@@ -207,10 +218,14 @@ def command(text, agent, workspace, ui):
             agent.store.save(replacement)
         agent.session = replacement
         workspace.change_session_id = replacement.id
-        if hasattr(agent, "git_inspector"):
-            agent.git_inspector.capture("session_start" if name == "/new" else "first_inspection")
         workspace.read_versions.clear()
         workspace.read_ranges.clear()
+        if hasattr(agent, "git_inspector"):
+            from .git_awareness import GitError
+            try:
+                agent.git_inspector.capture("session_start" if name == "/new" else "first_inspection")
+            except GitError as error:
+                ui.write(str(error))
         agent.restart_requested = False
         ui.write('Active session: ' + replacement.id)
     elif name == '/clear':
@@ -360,6 +375,9 @@ def main(argv=None):
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.authorize_instructions = workspace.read_allowed_without_prompt
+        if config.provider == 'openrouter':
+            from .paths import STATE_ROOT
+            agent.configure_shared_budget(STATE_ROOT / 'evals' / 'budget.json')
         agent.jobs = jobs
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None

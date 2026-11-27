@@ -6,7 +6,7 @@ Codine separates a failure that might be temporary from a request that is safe t
 
 Both completion adapters keep the SDK's `max_retries=0`. Codine does not automatically resend a completion after HTTP 429, 5xx, timeout, disconnect or incomplete streaming. It does not infer zero billing from an HTTP status, exception class, missing response or provider error message.
 
-The OpenRouter ledger reserves a request budget before dispatch. If the call fails without settled usage/cost, that reservation remains pending. A second completion is blocked. Inspect provider activity and use `/budget reconcile AMOUNT` with the actual charge before deliberately continuing; do not use zero merely to clear the block.
+The OpenRouter ledger reserves a request budget before dispatch. If the call fails without settled usage/cost, that reservation remains pending. A second completion is blocked. Inspect provider activity and use `/budget reconcile REQUEST_ID AMOUNT` with the actual charge before deliberately continuing; do not use zero merely to clear the block.
 
 The CLI classifies SDK failures and supplies sanitized advice:
 

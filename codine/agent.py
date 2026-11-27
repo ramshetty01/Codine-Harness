@@ -112,24 +112,34 @@ class Agent:
         finally:
             self._in_turn = False
 
+    def configure_shared_budget(self, path, read_metadata=None):
+        """Normal CLI sessions share a durable allowance; tests inject temp state."""
+        from .router_catalog import metadata
+        self.shared_budget_path = path
+        self.budget_metadata = metadata if read_metadata is None else read_metadata
+
     def complete(self, messages, schemas, ledger, emit=None):
         """Normal and summary calls use exactly the same accounting boundary."""
         self._phase = 'accounting'
-        if ledger:
-            ledger.reserve()
-            self.save()
-        self._phase = 'provider'
-        reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, emit or self.emit)
-        self._phase = 'processing'
-        if ledger:
-            cost = getattr(usage, 'cost', None) if usage else None
-            if cost is None:
-                raise BudgetError('Provider omitted request cost. Reservation retained; reconcile with /budget before continuing.')
-            blocked = ledger.settle(cost)
-            self.save()
-            self.emit('status', ledger.summary())
-            if blocked:
-                raise BudgetError(blocked)
+        if ledger and getattr(self, 'shared_budget_path', None) is not None:
+            from .interactive_budget import complete_shared
+            reply, finish, usage = complete_shared(self, messages, schemas, ledger, emit or self.emit)
+        else:
+            if ledger:
+                ledger.reserve()
+                self.save()
+            self._phase = 'provider'
+            reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, emit or self.emit)
+            self._phase = 'processing'
+            if ledger:
+                cost = getattr(usage, 'cost', None) if usage else None
+                if cost is None:
+                    raise BudgetError('Provider omitted request cost. Reservation retained; reconcile with /budget before continuing.')
+                blocked = ledger.settle(cost)
+                self.save()
+                self.emit('status', ledger.summary())
+                if blocked:
+                    raise BudgetError(blocked)
         if usage:
             for key, attr in (('input', 'prompt_tokens'), ('output', 'completion_tokens'), ('total', 'total_tokens')):
                 self.session.usage[key] += getattr(usage, attr, 0) or 0

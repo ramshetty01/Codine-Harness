@@ -36,7 +36,8 @@ class GuardedProvider:
         # Conservative byte guard, not an exact tokenizer or a remote dollar cap.
         if len(json.dumps([messages, schemas], ensure_ascii=False).encode()) > 30000:
             raise BudgetError('Evaluation request exceeds the 30 KB input allowance.')
-        remaining = self.read_metadata('key', self.key).get('limit_remaining')
+        details = self.read_metadata('key', self.key)
+        remaining = details.get('limit_remaining') if isinstance(details, dict) else None
         if remaining is None or money(remaining) < money('1.55'):
             raise BudgetError('Key must have at least $1.55 remaining to preserve the $1.50 reserve.')
         self.run_budget.reserve()
@@ -120,6 +121,7 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model')
+    parser.add_argument('--reconcile-request', help='Exact outstanding evaluation request ID from the shared ledger')
     parser.add_argument('--reconcile-cost', help='Explicitly settle the shared pending request using its verified provider charge; sends no inference')
     parser.add_argument('--suite', choices=('functions', 'repository'), default='functions')
     parser.add_argument('--task', action='append', help='Exact task ID; repeat to select several')
@@ -127,6 +129,8 @@ def main(argv=None):
     parser.add_argument('--report', default='.codine/evals/live.json')
     parser.add_argument('--image', default='python:3.12-slim')
     args = parser.parse_args(argv)
+    if (args.reconcile_cost is None) != (args.reconcile_request is None):
+        parser.error('--reconcile-cost and --reconcile-request must be supplied together.')
     cap = money(args.run_budget)
     if not money('0.05') <= cap <= money('0.75'):
         parser.error('Run budget must be $0.05–$0.75. Shared lifetime limit is $3.50.')
@@ -138,7 +142,7 @@ def main(argv=None):
     if args.reconcile_cost is not None:
         shared = EvaluationBudget(STATE_ROOT / 'evals/budget.json', cfg.api_key)
         try:
-            shared.settle(args.reconcile_cost)
+            shared.settle(args.reconcile_cost, request_id=args.reconcile_request)
             print('Shared evaluation ledger reconciled. ' + shared.ledger.summary())
         finally:
             shared.close()
@@ -165,6 +169,7 @@ def main(argv=None):
     path = Path(args.report)
     def save_report():
         report.update(cost_usd=run_budget.state['spent'], pending_usd=shared.ledger.state['pending'],
+                      pending_request=shared.ledger.state['reservation'],
                       shared_cost_usd=shared.ledger.state['spent'],
                       passed=sum(r['passed'] for r in report['results']), total=len(report['results']))
         durations = sorted(r['seconds'] for r in report['results'])

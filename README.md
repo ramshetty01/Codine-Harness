@@ -8,6 +8,8 @@ The next-release design is documented in **[docs/DEVELOPMENT_PLAN.md](docs/DEVEL
 
 ## Start
 
+For the shared interactive/evaluation allowance and owner-scoped reconciliation, see **[Shared spending](docs/SHARED_SPENDING.md)**.
+
 For provider failure handling and the limits of automatic retries, see **[Provider failures](docs/PROVIDER_FAILURES.md)**.
 
 For narrowly scoped runtime network and credential grants, see **[Execution profiles](docs/EXECUTION_PROFILES.md)**.

@@ -105,7 +105,7 @@ def classify_failure(error, *, operation='completion', now=None):
     safe = operation == 'metadata' and transient
     if operation == 'completion':
         action += (' No automatic completion retry. If a charge reservation is pending, check provider activity '
-                   'and reconcile the actual charge with /budget reconcile AMOUNT before continuing.')
+                   'and use /budget for its request ID, then /budget reconcile REQUEST_ID AMOUNT before continuing.')
     return FailureInfo(category, transient, safe, retry_after(error, now), message, action)
 
 
