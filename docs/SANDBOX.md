@@ -82,3 +82,53 @@ A manifest is an explicit mapping from relative Python paths to source text. Onl
 This is a snapshot of a controlled, disposable workspace after synchronous tool execution. It is not a race-proof filesystem copier for directories concurrently modified by hostile host processes. It does not install dependencies, run arbitrary build commands, stage data files, or evaluate large repositories. Only standard-library Python packages exposing `solve` through `task.py` are supported. The repository suite refuses the local executor. New unlisted files are intentionally excluded.
 
 Learning distinction: file staging chooses what enters the container; package loading lets those files import each other; Docker restricts execution; the host grader compares returned values. None of these components makes the scripted provider a real model.
+
+### General repository snapshots (E2)
+
+`codine.staging.snapshot_repository(root, paths)` now provides a reusable staging
+boundary for future repository command execution. Pass explicit relative file
+names; there is no implicit recursive copy, Git discovery, host mount, or inherited
+environment. For example:
+
+```python
+from codine.staging import snapshot_repository
+
+manifest = snapshot_repository(project_root, [
+    "pyproject.toml", "src/app.py", "tests/test_app.py",
+])
+print(manifest.digest, manifest.total_bytes)
+files = manifest.as_text_files()
+```
+
+The frozen manifest owns UTF-8 text, byte lengths, and SHA-256 content hashes.
+Its digest covers sorted names, hashes, and sizes, independent of selection order.
+Changing a host file afterward cannot change the snapshot. The returned mapping
+is a copy. Permissions, ownership, executable flags, and modification times are
+not transported; a future executor must choose its own safe materialization mode.
+
+Defaults allow 256 files, 1 MB per file, 8 MB total, and 240 UTF-8 bytes per path.
+`StagingLimits` can set tighter application budgets. The extension/name allowlist
+covers common source files, tests, text configurations, lockfiles, documentation,
+Dockerfiles, and Makefiles. It does not execute these files. NUL-bearing binary
+files, invalid UTF-8, unsupported extensions, non-normalized paths, traversal,
+control characters, duplicate names, and Unicode/case-colliding names are refused.
+Credential filenames/directories (including all `.env*`, even `.env.example`), Git
+metadata, Codine sessions/state, dependency folders, and generated/cache folders
+are excluded even when explicitly selected. **This is a path policy, not a secret
+scanner:** credentials embedded in otherwise allowed source/configuration files
+are not detected. Only select reviewed files for a container payload.
+
+On POSIX, each directory is opened relative to its parent descriptor with
+`O_NOFOLLOW`. Files are read through a no-follow, nonblocking descriptor after
+checking regular-file type, one hard link, and size. Reads are bounded; metadata
+is checked again to reject observable concurrent changes. Parent symlink swaps
+cannot redirect an already opened directory descriptor. Unsupported platforms
+fail closed. The caller chooses the trusted repository root; this is not an
+atomic snapshot of an entire tree, and hostile concurrent writes or directory
+moves are not supported. Snapshot after tools finish, in a controlled workspace.
+
+The existing Python evaluator now uses this reader while retaining its stricter
+32-file/200-KB/Python-only policy and its separate 256-KB serialized input cap.
+E2 does **not** enable general Docker commands, dependency installs, network
+access, write-back from containers, or sandbox the terminal's host command tool.
+Those require separate executor and review policy work.

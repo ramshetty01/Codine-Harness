@@ -1,7 +1,7 @@
 """Restricted Docker execution for evaluation candidates; never falls back to host Python."""
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
 import selectors
 import shutil
@@ -60,18 +60,14 @@ def validate_files(files, entrypoint):
 
 def snapshot_files(root, paths, entrypoint):
     """Snapshot only manifest paths, rejecting symlinks and special files."""
+    paths = list(paths)
     validate_files(dict.fromkeys(paths, ''), entrypoint)
-    root = Path(root).resolve()
-    files = {}
-    for name in paths:
-        target = root
-        for part in PurePosixPath(name).parts:
-            target = target / part
-            if target.is_symlink():
-                raise SandboxError('Symlinks are not allowed in evaluation manifests.')
-        if not target.is_file() or target.stat().st_size > 200000:
-            raise SandboxError('Missing, special, or oversized staged file.')
-        files[name] = target.read_text(encoding='utf-8')
+    from .staging import snapshot_repository, StagingLimits, StagingError
+    try:
+        files = snapshot_repository(root, paths, StagingLimits(
+            max_files=32, max_file_bytes=200000, max_total_bytes=200000)).as_text_files()
+    except StagingError as error:
+        raise SandboxError(str(error)) from error
     validate_files(files, entrypoint)
     return files
 
