@@ -33,6 +33,7 @@ HELP = '''Commands
   /session              Current session details
   /sessions [query]     Search and select saved sessions
   /rename TITLE         Name the current session
+  /checks [DIR]         Discover configured repository checks; /checks results
   /git [diff|staged PATH] Inspect Git status or a file diff
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
@@ -183,6 +184,10 @@ def command(text, agent, workspace, ui):
                 return command('/resume ' + selected, agent, workspace, ui)
         else:
             ui.write('\n'.join(session_label(row) for row in matching_sessions(rows, argument)) or 'No matching sessions.')
+    elif name == '/checks':
+        result = (workspace.project_checks.results if argument == 'results'
+                  else workspace.project_checks.discover(argument or '.'))
+        ui.write(json.dumps(result, indent=2))
     elif name == '/git':
         parts = argument.split(maxsplit=1)
         if not parts:
