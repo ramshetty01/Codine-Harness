@@ -61,7 +61,7 @@ the supported-platform matrix.
 | Milestone | Remaining acceptance work |
 |---|---|
 | M1 Representative tasks | Multi-language/multi-repository breadth, annotated incorrect edits/interventions, repeated controlled live comparisons |
-| M2 Sandboxed execution | Complete generic file-operation policy rules and verify the full sandbox acceptance task |
+| M2 Sandboxed execution | Gate passed: 121 checks with zero skips, real build/smoke, and five repository fixtures; see MILESTONE2_ACCEPTANCE.md |
 | M3 Long-task reliability | Live long-task/summary-quality acceptance and inference retries only with verified billing/replay safety |
 | M4 Daily terminal workflow | Steering/queues, richer repo navigation and changesets, session UX, streaming and shared interactive budgets |
 | M5 Customization | Hierarchical trusted configuration, skills/templates, reviewed memory and extension lifecycle |
@@ -108,3 +108,9 @@ it. Unknown provider charges block the allowance across sessions. Owner-bound
 request IDs and durable settlement receipts permit recovery without double
 charging. This is an installation/state-root allowance domain, not tamperproof
 account-global billing. No live inference was used to implement these features.
+
+The sandbox milestone gate passed: 121 checks with no skips, an actual container
+build/smoke test, and five repository repair fixtures. See
+[MILESTONE2_ACCEPTANCE.md](MILESTONE2_ACCEPTANCE.md) for reproducible evidence and
+its Docker/Python scope. A 336-test integration run passed before the final Git
+filter regressions and build test; targeted Git tests then passed 9/9.
