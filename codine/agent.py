@@ -93,10 +93,15 @@ class Agent:
         # Failure leaves the prior context metadata intact. Never recursively summarize.
         projected = project_context(candidate, schemas, self.config.context_chars, guidance,
                                     token_budget=window, output_tokens=output, allow_trim=False)
+        previous_metadata = (self.session.context_summary, self.session.summary_end, self.session.summary_user)
         self.session.context_summary = candidate.context_summary
         self.session.summary_end = candidate.summary_end
         self.session.summary_user = candidate.summary_user
-        self.save()
+        try:
+            self.save()
+        except BaseException:
+            self.session.context_summary, self.session.summary_end, self.session.summary_user = previous_metadata
+            raise
         return projected
 
     def run_turn(self, text):

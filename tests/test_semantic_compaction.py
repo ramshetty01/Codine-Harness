@@ -4,12 +4,12 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from codine.agent import Agent
+from codine.agent import Agent, PersistenceError
 from codine.budget import BudgetError
 from codine.config import Config, Redactor
-from codine.context import ContextLimitError, SUMMARY_KEYS, complete_boundaries
+from codine.context import ContextLimitError, SUMMARY_KEYS, complete_boundaries, summary_request, compaction_boundary
 from codine.context_inspector import inspect_context
 from codine.registry import ToolRegistry, ToolSpec
 from codine.sessions import Session, SessionStore, validate_messages
@@ -173,6 +173,44 @@ class SemanticCompactionTests(unittest.TestCase):
         self.session.context_start = len(self.session.messages)
         self.agent.run_turn('fresh task')
         self.assertFalse(any('Untrusted conversation summary' in str(row.get('content')) for row in self.requests[-1][0]))
+
+    def test_summary_save_failure_restores_in_memory_metadata(self):
+        self.old_turn()
+        save = self.store.save
+        def fail_summary(session):
+            if session.context_summary:
+                raise OSError('disk full writing summary')
+            save(session)
+        with patch.object(self.store, 'save', side_effect=fail_summary):
+            with self.assertRaises(PersistenceError):
+                self.agent.run_turn('continue')
+        self.assertEqual(self.session.context_summary, {})
+        self.assertEqual(self.session.summary_end, 1)
+        self.assertIsNone(self.session.summary_user)
+        restored = self.store.load(self.session.id)
+        self.assertEqual(restored.context_summary, {})
+        self.assertEqual(restored.billing['spent'], '0.01')
+        self.assertEqual(len(self.requests), 1)
+
+    def test_later_summary_keeps_original_active_user_and_opaque_archive(self):
+        self.session.messages += [
+            {'role': 'user', 'content': 'Original active task: preserve compatibility'},
+            {'role': 'assistant', 'content': 'first result', 'reasoning_details': [{'type': 'reasoning.encrypted', 'data': 'opaque-original'}]},
+            {'role': 'assistant', 'content': 'later result'}]
+        self.session.summary_end = 3
+        self.session.summary_user = 1
+        self.session.context_summary = {'summary': summary(), 'evidence': []}
+        before = copy.deepcopy(self.session.messages)
+        payload = json.loads(summary_request(self.session, 4)[1]['content'])
+        self.assertEqual(payload['active_user_request'], before[1])
+        self.assertEqual(payload['conversation'], [before[3]])
+        self.assertEqual(self.session.messages, before)
+
+    def test_pending_journal_cannot_be_compacted(self):
+        self.old_turn()
+        self.session.pending = {'reply': {}, 'results': {}}
+        with self.assertRaises(ContextLimitError):
+            compaction_boundary(self.session, 5000, 20000, 500)
 
     def test_parallel_tool_boundary_is_never_split(self):
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'task'},

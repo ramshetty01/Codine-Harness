@@ -143,7 +143,8 @@ def parse_summary(reply, finish):
 def summary_request(session, end, plan=''):
     start = max(session.context_start, session.summary_end)
     source = [request_message(message) for message in session.messages[start:end]]
-    payload = {'prior_summary': session.context_summary if session.summary_end > session.context_start else {},
+    active_user = next((dict(message) for message in reversed(session.messages) if message['role'] == 'user'), None)
+    payload = {'active_user_request': active_user, 'prior_summary': session.context_summary if session.summary_end > session.context_start else {},
                'plan': plan, 'conversation': source}
     return [{'role': 'system', 'content': SUMMARY_SYSTEM},
             {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}]
@@ -156,6 +157,9 @@ def fits(messages, schemas, chars, window, output):
 
 def compaction_boundary(session, chars, window, output, plan=''):
     """Pick the largest complete prefix fitting one bounded summary call."""
+    if session.pending:
+        raise ContextLimitError('Finish or recover the pending tool journal before compaction.')
+    validate_messages(session.messages)
     start = max(session.context_start, session.summary_end)
     boundaries = complete_boundaries(session.messages, start)
     candidates = boundaries
