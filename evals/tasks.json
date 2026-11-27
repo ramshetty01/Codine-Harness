@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tasks": [
     {
       "id": "positive_sum",
@@ -7,7 +7,7 @@
       "prompt": "Fix task.py. Return the sum of strictly positive numbers. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(values):\n    return sum(values)\n",
       "reference": "def solve(values):\n    return sum(x for x in values if x > 0)\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -18,7 +18,9 @@
             ]
           ],
           "expected": 7
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             []
@@ -41,13 +43,15 @@
       "prompt": "Fix task.py. Lowercase text, trim it, collapse whitespace, and join words with hyphens. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(text):\n    return text.lower()\n",
       "reference": "def solve(text):\n    return \"-\".join(text.lower().split())\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             " Hello  World "
           ],
           "expected": "hello-world"
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             " A\tB "
@@ -68,7 +72,7 @@
       "prompt": "Fix task.py. Deduplicate hashable values while preserving first-occurrence order. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(values):\n    return sorted(set(values))\n",
       "reference": "def solve(values):\n    return list(dict.fromkeys(values))\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -83,7 +87,9 @@
             1,
             2
           ]
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             []
@@ -111,7 +117,7 @@
       "prompt": "Fix task.py. Return the numeric median, averaging the middle two for even length; return None for empty input. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(values):\n    return sorted(values)[len(values)//2] if values else None\n",
       "reference": "def solve(values):\n    if not values:\n        return None\n    ordered = sorted(values)\n    n = len(ordered)\n    return ordered[n//2] if n % 2 else (ordered[n//2-1] + ordered[n//2]) / 2\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -122,7 +128,9 @@
             ]
           ],
           "expected": 2.5
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             [
@@ -147,7 +155,7 @@
       "prompt": "Fix task.py. Flatten exactly one level of nested lists while retaining order. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(values):\n    return values\n",
       "reference": "def solve(values):\n    return [item for group in values for item in group]\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -166,7 +174,9 @@
             2,
             3
           ]
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             []
@@ -181,7 +191,7 @@
       "prompt": "Fix task.py. Split a list into chunks of positive size, retaining a short final chunk. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(values, size):\n    return [values[i:i+size] for i in range(0, len(values)-size+1, size)]\n",
       "reference": "def solve(values, size):\n    return [values[i:i+size] for i in range(0, len(values), size)]\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -206,7 +216,9 @@
               5
             ]
           ]
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             [],
@@ -235,13 +247,15 @@
       "prompt": "Fix task.py. Compute factorial for a nonnegative integer, including zero. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(n):\n    result = 1\n    for i in range(1, n):\n        result *= i\n    return result\n",
       "reference": "def solve(n):\n    result = 1\n    for i in range(1, n+1):\n        result *= i\n    return result\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             5
           ],
           "expected": 120
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             0
@@ -262,13 +276,15 @@
       "prompt": "Fix task.py. Check a palindrome ignoring case and all non-alphanumeric characters. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(text):\n    return text == text[::-1]\n",
       "reference": "def solve(text):\n    normalized = \"\".join(c.lower() for c in text if c.isalnum())\n    return normalized == normalized[::-1]\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             "A man, a plan, a canal: Panama!"
           ],
           "expected": true
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             "abc"
@@ -289,14 +305,16 @@
       "prompt": "Fix task.py. Divide a by b, returning None when b is zero. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(a, b):\n    return a / b\n",
       "reference": "def solve(a, b):\n    return None if b == 0 else a / b\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             4,
             2
           ],
           "expected": 2
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             1,
@@ -319,13 +337,15 @@
       "prompt": "Fix task.py. Return the final filename extension without a dot; a dotfile such as .env has no extension. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(name):\n    return name.split(\".\")[-1]\n",
       "reference": "from pathlib import PurePath\n\ndef solve(name):\n    return PurePath(name).suffix.lstrip(\".\")\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             "file.py"
           ],
           "expected": "py"
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             ".env"
@@ -352,7 +372,7 @@
       "prompt": "Fix task.py. Clamp a numeric value inclusively between the given low and high bounds. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(value, low, high):\n    return min(max(value, high), low)\n",
       "reference": "def solve(value, low, high):\n    return min(max(value, low), high)\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             5,
@@ -360,7 +380,9 @@
             10
           ],
           "expected": 5
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             -1,
@@ -385,7 +407,7 @@
       "prompt": "Fix task.py. Count words case-insensitively; return a dictionary with lowercase keys. Keep the solve function signature. Read before editing and check syntax afterward.",
       "initial": "def solve(words):\n    return {word: words.count(word) for word in words}\n",
       "reference": "from collections import Counter\n\ndef solve(words):\n    return dict(Counter(word.lower() for word in words))\n",
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -398,7 +420,9 @@
             "hi": 2,
             "bye": 1
           }
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             []

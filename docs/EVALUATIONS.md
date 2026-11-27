@@ -143,3 +143,37 @@ represent independent runs or that a remote provider kept the model unchanged.
 Do not copy one report to simulate repetition. Two runs are an initial diagnostic,
 not a statistically reliable superiority claim. Synthetic tests validate this
 comparison tool; live repeated comparisons remain an evaluation gate.
+## Public checks and held-back final grading
+
+Fixture schema version 2 requires two nonempty lists: `public_cases` and
+`hidden_cases`. Each case has `args` (a list) and `expected`. Inputs must be unique
+within each list and disjoint across lists; invalid fixtures fail before model
+execution. Existing cases are retained: the first case becomes public and the
+remaining cases are held back. This changes visibility, not the behavioral bar.
+
+During live evaluation, `run_checks` executes **only public cases**. Its results
+may include public actual values and diagnostics. After the agent finishes, the
+host independently grades **both public and hidden cases**. Passing public checks
+and saying “done” does not count as success when a hidden case fails. Report rows
+record both case counts. Inference budgets and shared charge reservations are
+unchanged.
+
+Neither case list, expected answers, nor reference edits are written into the
+candidate workspace. Only public check results enter conversation history. Hidden
+checks run after the last model request; their outcomes remain in the local report
+and are never sent back to the model. The container receives candidate files and
+case arguments, while expected answers stay on the host. Offline scripted exercises
+still use a privileged reference oracle to verify infrastructure and grade all
+cases; they are not model capability measurements.
+
+“Hidden cases” are distinct from the task-level `development`/`holdout` split.
+These checked-in fixtures are held back from a particular agent run, not secret
+benchmarks unavailable to model training. The cases are intentionally small; this
+does not establish production readiness or resistance to benchmark memorization.
+Task fingerprints cover both lists, so a visibility/case change produces a new
+evaluation identity.
+
+`tests/test_eval_holdback.py` uses a fake provider and executor to prove that a
+public-only solution fails final grading, hidden input/answer/reference canaries
+never enter requests or workspace files, and invalid fixtures cannot start model
+traffic. No API credits are needed for these checks.

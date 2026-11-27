@@ -44,6 +44,25 @@ def equivalent(actual, expected):
     return actual == expected
 
 
+def task_cases(task):
+    """Validate public/held-back cases before any execution or model traffic."""
+    sets = []
+    for name in ('public_cases', 'hidden_cases'):
+        cases = task.get(name)
+        if not isinstance(cases, list) or not cases:
+            raise ValueError(f"{name} must be a nonempty list.")
+        for case in cases:
+            if not isinstance(case, dict) or set(case) != {'args', 'expected'} or not isinstance(case['args'], list):
+                raise ValueError(f"Invalid {name} case; expected args list and expected value.")
+        signatures = [json.dumps(case['args'], sort_keys=True, allow_nan=False) for case in cases]
+        if len(set(signatures)) != len(signatures):
+            raise ValueError(f"Duplicate inputs in {name}.")
+        sets.append(set(signatures))
+    if sets[0] & sets[1]:
+        raise ValueError("Public and hidden case inputs must be disjoint.")
+    return task['public_cases'], task['hidden_cases']
+
+
 def grade(root, cases, executor=None, manifest=None):
     if manifest is not None:
         from .sandbox import snapshot_files
@@ -93,6 +112,7 @@ class ScriptedProvider:
 
 
 def run_case(task, executor=None):
+    public, hidden = task_cases(task)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='codine-offline-eval-') as directory:
         root = Path(directory).resolve()
@@ -107,7 +127,7 @@ def run_case(task, executor=None):
                 target.write_text(content)
         else:
             source.write_text(task['initial'])
-        broken = grade(root, task['cases'], executor, manifest)
+        broken = grade(root, public + hidden, executor, manifest)
         store = SessionStore(root)
         try:
             session = Session.create(root, 'scripted-oracle', SYSTEM)
@@ -117,7 +137,7 @@ def run_case(task, executor=None):
             registry = build_registry(workspace, lambda: {'status': 'declined'})
             agent = Agent(Config(root), provider, registry, store, session, lambda *args: None, Redactor())
             outcome = agent.run_turn(task['prompt'])
-            result = grade(root, task['cases'], executor, manifest)
+            result = grade(root, public + hidden, executor, manifest)
             saved = store.load(session.id)
             validate_messages(saved.messages)
             return {'task': task['id'], 'split': task['split'], 'outcome': outcome,

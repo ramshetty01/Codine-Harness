@@ -14,7 +14,7 @@ from .config import Config, Redactor
 from .paths import eval_resource, STATE_ROOT
 from .provenance import evaluation_manifest
 from .eval_budget import EvaluationBudget
-from .evals import grade
+from .evals import grade, task_cases
 from .provider import OpenRouterProvider
 from .registry import ToolSpec
 from .router_catalog import metadata, tool_models
@@ -57,6 +57,7 @@ class GuardedProvider:
 
 
 def evaluate_task(task, base_config, executor, shared, run_budget):
+    public, hidden = task_cases(task)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='codine-live-eval-') as directory:
         root = Path(directory).resolve()
@@ -81,8 +82,8 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
         del registry.tools['run_command']
         del registry.tools['request_restart']
         def check():
-            return grade(root, task['cases'], executor, files)
-        registry.register(ToolSpec('run_checks', 'Run the task behavior checks in a disposable Docker container. Returns actual values and pass/fail; no host commands.',
+            return grade(root, public, executor, files)
+        registry.register(ToolSpec('run_checks', 'Run public behavior checks in a disposable Docker container. Final grading also uses held-back checks after completion. Returns public actual values and pass/fail; no host commands.',
             {'type': 'object', 'properties': {}, 'additionalProperties': False}, check, 'execute'))
         agent = Agent(config, provider, registry, store, session, lambda kind, value: events.append((kind, value)), redactor)
         error = None
@@ -91,7 +92,7 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
         except Exception as failure:
             outcome, error = 'error', redactor.text(str(failure))[:1000]
         try:
-            result = check()
+            result = grade(root, public + hidden, executor, files)
             saved = store.load(session.id)
             validate_messages(saved.messages)
             tool_errors = 0
@@ -104,6 +105,7 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
                         pass
             return {'task': task['id'], 'split': task['split'], 'outcome': outcome,
                     'passed': outcome == 'completed' and result['passed'], 'grade': result,
+                    'public_cases': len(public), 'hidden_cases': len(hidden),
                     'error': error, 'requests': provider.calls, 'request_seconds': provider.durations,
                     'cost_usd': session.billing.get('spent', '0'), 'tool_failures': tool_errors,
                     'seconds': round(time.monotonic() - started, 3),

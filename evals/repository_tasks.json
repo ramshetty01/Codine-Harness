@@ -14,7 +14,7 @@
         "shop/money.py": "def line_total(price, quantity):\n    return price * max(quantity, 0)\n",
         "shop/invoice.py": "from shop.money import line_total\ndef total(items):\n    return round(sum(line_total(p, q) for p, q in items), 2)\n"
       },
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -29,7 +29,9 @@
             ]
           ],
           "expected": 10.0
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             [
@@ -67,7 +69,7 @@
         "words/normalization.py": "def normalize(word):\n    return word.strip().lower()\n",
         "words/counting.py": "from words.normalization import normalize\ndef count(words):\n    result = {}\n    for word in words:\n        key = normalize(word)\n        if key:\n            result[key] = result.get(key, 0) + 1\n    return result\n"
       },
-      "cases": [
+      "public_cases": [
         {
           "args": [
             [
@@ -81,7 +83,9 @@
             "a": 2,
             "b": 1
           }
-        },
+        }
+      ],
+      "hidden_cases": [
         {
           "args": [
             []
@@ -102,5 +106,6 @@
         }
       ]
     }
-  ]
+  ],
+  "version": 2
 }
