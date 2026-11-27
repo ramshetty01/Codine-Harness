@@ -10,7 +10,9 @@ from .config import APP_ROOT
 
 def check_sources(app_root=APP_ROOT):
     root = Path(app_root)
-    files = [root / 'main.py'] + sorted((root / 'codine').glob('*.py'))
+    files = sorted((root / 'codine').glob('*.py'))
+    if (root / 'main.py').is_file():
+        files.insert(0, root / 'main.py')
     if not (root / 'codine' / 'cli.py').is_file():
         raise ValueError('Missing codine/cli.py.')
     for path in files:
@@ -26,11 +28,12 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
     agent.save()
     check_sources(root)
     # New interpreter imports updated code; no credentials, model call, or session mutation.
-    probe = subprocess.run([sys.executable, str(root / 'main.py'), '--check'], cwd=root,
+    entry = [str(root / 'main.py')] if (root / 'main.py').is_file() else ['-m', 'codine']
+    probe = subprocess.run([sys.executable, *entry, '--check'], cwd=agent.session.project,
                            capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
     if probe.returncode:
         raise ValueError('Startup check failed. Current process kept running.\n' + (probe.stderr or probe.stdout)[-3000:])
-    argv = [sys.executable, str(root / 'main.py'), '--project', agent.session.project, '--resume', agent.session.id]
+    argv = [sys.executable, *entry, '--project', agent.session.project, '--resume', agent.session.id]
     if plan:
         argv.append('--plan')
     agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')

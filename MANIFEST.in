@@ -1,0 +1,4 @@
+include requirements.txt
+include evals/*.json
+include scripts/check_install.py
+include docs/INSTALLATION.md

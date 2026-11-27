@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
-APP_ROOT = Path(__file__).resolve().parent.parent
+from .paths import APP_ROOT, CONFIG_ROOT
 DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 
@@ -40,8 +40,8 @@ class Config:
         project = Path(project).resolve()
         if not project.is_dir():
             raise ValueError("Project must be an existing directory.")
-        load_dotenv(APP_ROOT / ".env")
-        if project != APP_ROOT:
+        load_dotenv(CONFIG_ROOT / ".env")
+        if project != CONFIG_ROOT:
             load_dotenv(project / ".env")
         values = {}
         for key, env, default, maximum in (

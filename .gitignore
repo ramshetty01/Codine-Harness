@@ -11,3 +11,8 @@ __pycache__/
 # Local sessions, action journals, and recovery snapshots
 .codine/
 .sessions/
+
+# Python package build artifacts
+build/
+dist/
+*.egg-info/

@@ -6,6 +6,7 @@ import sys
 from openai import APIConnectionError, APIError, APIStatusError, AuthenticationError, RateLimitError
 from .agent import Agent, PersistenceError, SYSTEM
 from .config import APP_ROOT, Config, Redactor
+from . import __version__
 from .context import compact
 from .provider import NvidiaProvider, OpenRouterProvider
 from .budget import Budget
@@ -46,6 +47,7 @@ Commands run as your user, not in a sandbox. Inspect every command approval.
 
 def parser():
     result = argparse.ArgumentParser(prog='codine', description='Codine — a Pi-inspired Python terminal coding harness')
+    result.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     result.add_argument('--project', default='.', help='Workspace directory (default: current directory)')
     group = result.add_mutually_exclusive_group()
     group.add_argument('--resume', metavar='ID', help='Resume a project session')

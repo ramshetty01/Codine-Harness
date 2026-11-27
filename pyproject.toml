@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codine-harness"
+dynamic = ["version", "dependencies"]
+description = "An understandable Python terminal coding harness"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX",
+]
+
+[project.scripts]
+codine = "codine.cli:main"
+
+[tool.setuptools]
+packages = ["codine"]
+py-modules = ["model_picker"]
+
+[tool.setuptools.dynamic]
+version = {attr = "codine.__version__"}
+dependencies = {file = ["requirements.txt"]}
