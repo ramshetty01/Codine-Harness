@@ -66,8 +66,7 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
         validate_files(files, 'task.py')
         for name, content in files.items():
             path = root / name
-            report['metrics'] = summarize_results(report['results'], report['selected_tasks'], report['cost_usd'], report['pending_usd'])
-        path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         # Do not instantiate ScriptedProvider or pass reference edits into model context.
         config = replace(base_config, project=root)
