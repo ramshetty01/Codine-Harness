@@ -36,6 +36,8 @@ HELP = '''Commands
   /checks [DIR]         Discover configured repository checks; /checks results
   /git [diff|staged PATH] Inspect Git status or a file diff
   /resume ID, /new      Resume saved history / start a new session
+  /export PATH.json     Preview redacted transcript; confirm with displayed hash
+  /import PATH.json     Review history for a fresh session; no tools replayed
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
   /artifact ID [OFFSET] Read a local tool-output snapshot without a model call
@@ -98,6 +100,9 @@ def command(text, agent, workspace, ui):
     session = agent.session
     if name == '/help':
         ui.write(HELP)
+    elif name in ('/export', '/import'):
+        from .transcripts import command as transcript_command
+        transcript_command(name[1:], argument, agent, workspace, ui, SYSTEM)
     elif name == '/jobs':
         ui.write(json.dumps(workspace.jobs.status(argument or None), indent=2))
     elif name == '/cancel':
