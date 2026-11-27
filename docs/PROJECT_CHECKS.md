@@ -1,6 +1,6 @@
 # Discover and run repository checks
 
-Use `/checks` (or `/checks subdirectory`) to inspect supported configuration without running code. Each suggestion includes a command argv, category, source path and SHA256, and stable discovery ID. `/checks results` displays the last 32 invocation summaries for this process. Model tools are `discover_checks(cwd=".")` and `run_check(check_id, timeout=30, files=...)`. Full outcomes remain in ordinary tool history; discovery catalogs and the summaries are process-local.
+Use `/checks` (or `/checks subdirectory`) to inspect supported configuration without running code. Each suggestion includes a command argv, category, source path and SHA256, and stable discovery ID. `/checks results` displays the last 32 invocation summaries for this process. Model tools are `discover_checks(cwd=".")` and `run_check(check_id, timeout=30, files=...)`. Full outcomes remain in ordinary tool history; discovery catalogs and the summaries are process-local and cleared when switching sessions.
 
 Recognized configurations:
 
