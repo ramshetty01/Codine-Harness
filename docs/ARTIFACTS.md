@@ -3,7 +3,8 @@
 Interactive Codine saves tool results longer than 12,000 characters as immutable
 local snapshots and sends a head/tail preview plus an artifact ID to the model.
 Known credentials are redacted before snapshot creation. `read_artifact` pages the
-full result in slices of up to 6,000 characters. Artifact reads are available in
+full result in slices of up to 6,000 characters. Users can inspect a snapshot
+locally with `/artifact ID [OFFSET]`, without a model request. Artifact reads are available in
 planning mode but do not grant fresh file-read/edit permissions.
 
 Snapshots are content-addressed SHA-256 JSON records under `.codine/artifacts`,

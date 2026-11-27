@@ -33,6 +33,7 @@ HELP = '''Commands
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
+  /artifact ID [OFFSET] Read a local tool-output snapshot without a model call
   /tasks [clear]        Inspect saved task progress; clear starts a new plan
   /context              Inspect active context and estimated remaining space
   /compact              Keep the latest 3 whole turns in active context
@@ -196,6 +197,14 @@ def command(text, agent, workspace, ui):
         session.context_start = len(session.messages)
         agent.save()
         ui.write('Active context cleared. The full session archive remains on disk.')
+    elif name == '/artifact':
+        parts = argument.split()
+        if not 1 <= len(parts) <= 2:
+            raise ValueError('Usage: /artifact ID [CHARACTER_OFFSET]')
+        result = agent.artifact_store.read(parts[0], int(parts[1]) if len(parts) == 2 else 0)
+        ui.write(result['content'])
+        ui.write(f"Source changed: {result['source_changed']} | Next offset: {result['next_offset']}")
+        ui.write(result['notice'])
     elif name == '/tasks':
         from .task_plan import clear_plan, format_plan
         if argument == 'clear':
