@@ -1,6 +1,7 @@
 """Configuration is runtime state; credentials are never session fields."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -17,11 +18,22 @@ class Config:
     max_tokens: int = 4096
     max_steps: int = 12
     context_chars: int = 160000
+    context_tokens: int = 65536
+    model_limits: dict = field(default_factory=dict)
     show_reasoning: bool = False
     provider: str = "nvidia"
     budget_usd: str = "3.50"
     request_budget_usd: str = "0.25"
     router_max_price: dict | None = None
+
+    def request_limits(self, model):
+        """Local policy ceiling plus explicitly configured model capabilities."""
+        limits = self.model_limits.get(model, {})
+        window = min(self.context_tokens, limits.get("context_tokens", self.context_tokens))
+        output = min(self.max_tokens, limits.get("output_tokens", self.max_tokens))
+        if output >= window:
+            raise ValueError("Output reservation must be smaller than the context token budget.")
+        return window, output
 
     @classmethod
     def load(cls, project, provider=None, model=None):
@@ -36,11 +48,23 @@ class Config:
             ("max_tokens", "CODINE_MAX_TOKENS", 4096, 131072),
             ("max_steps", "CODINE_MAX_STEPS", 12, 100),
             ("context_chars", "CODINE_CONTEXT_CHARS", 160000, 2000000),
+            ("context_tokens", "CODINE_CONTEXT_TOKENS", 65536, 10000000),
         ):
             value = int(os.getenv(env, str(default)))
             if not 1 <= value <= maximum:
                 raise ValueError(f"{env} must be between 1 and {maximum}.")
             values[key] = value
+        limits = json.loads(os.getenv("CODINE_MODEL_LIMITS", "{}"))
+        if not isinstance(limits, dict):
+            raise ValueError("CODINE_MODEL_LIMITS must be a JSON object keyed by exact model ID.")
+        for name, spec in limits.items():
+            if not isinstance(name, str) or not name or not isinstance(spec, dict):
+                raise ValueError("Invalid model limits entry.")
+            if not spec or set(spec) - {"context_tokens", "output_tokens"}:
+                raise ValueError("Model limits accept context_tokens and output_tokens only.")
+            if any(type(value) is not int or not 1 <= value <= 10000000 for value in spec.values()):
+                raise ValueError("Model limits must be positive integer token counts.")
+        values["model_limits"] = limits
         provider = provider or os.getenv("CODINE_PROVIDER", "nvidia")
         if provider not in ("nvidia", "openrouter"):
             raise ValueError("CODINE_PROVIDER must be nvidia or openrouter.")

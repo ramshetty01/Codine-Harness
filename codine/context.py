@@ -25,7 +25,21 @@ def request_message(message):
     return projected
 
 
-def project_context(session, schemas, budget, extra_system=""):
+def estimate_tokens(messages, schemas):
+    """Conservative byte-based estimate, NOT a provider tokenizer or guarantee.
+
+    Count UTF-8 JSON bytes as tokens and add framing headroom. This intentionally
+    overestimates ordinary prose; opaque reasoning and tool schemas count too.
+    Providers may tokenize or frame differently and remain authoritative.
+    """
+    return (len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) +
+            len(json.dumps(schemas, ensure_ascii=False).encode("utf-8")) +
+            64 + 16 * len(messages))
+
+
+def project_context(session, schemas, budget, extra_system="", *, token_budget=None, output_tokens=0):
+    if token_budget is not None and not 0 <= output_tokens < token_budget:
+        raise ContextLimitError("Output reservation must be smaller than the context token budget.")
     boundaries = user_boundaries(session)
     start = boundaries[0] if boundaries else len(session.messages)
     fixed = len(json.dumps(schemas, ensure_ascii=False))
@@ -34,11 +48,14 @@ def project_context(session, schemas, budget, extra_system=""):
         messages[0]['content'] += extra_system
         if start > 1:
             messages[0]['content'] += '\nOlder conversation turns are omitted from this request. Do not invent their contents; the full archive remains in the local session.'
-        if fixed + len(json.dumps(messages, ensure_ascii=False)) <= budget:
+        chars_fit = fixed + len(json.dumps(messages, ensure_ascii=False)) <= budget
+        tokens_fit = token_budget is None or estimate_tokens(messages, schemas) + output_tokens <= token_budget
+        if chars_fit and tokens_fit:
             validate_messages(messages)
             return messages, start
         if len(boundaries) <= 1:
-            raise ContextLimitError('The current turn exceeds the context character budget. Use /clear or start a smaller task; do not retry the same oversized request.')
+            boundary = "character" if not chars_fit else "estimated token (including reserved output)"
+            raise ContextLimitError(f'The current turn exceeds the context {boundary} budget. Use /clear or start a smaller task; do not retry the same oversized request.')
         boundaries.pop(0)
         start = boundaries[0]
 

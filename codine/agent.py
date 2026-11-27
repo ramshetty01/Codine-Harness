@@ -4,7 +4,7 @@ import json
 from collections import Counter
 from .instructions import load_instructions
 from .budget import Budget, BudgetError
-from .context import project_context
+from .context import project_context, estimate_tokens
 from .sessions import validate_messages
 
 SYSTEM = '''You are Codine, a practical Python terminal coding assistant. Reply in English.
@@ -71,7 +71,11 @@ class Agent:
         self.session.messages.append({'role': 'user', 'content': self.redactor.text(text)})
         self.save()
         for step in range(self.config.max_steps):
-            messages, start = project_context(self.session, self.registry.schemas(), self.config.context_chars, guidance)
+            window, output = self.config.request_limits(self.session.model)
+            schemas = self.registry.schemas()
+            messages, start = project_context(self.session, schemas, self.config.context_chars, guidance,
+                                              token_budget=window, output_tokens=output)
+            self.emit('status', f'Context estimate {estimate_tokens(messages, schemas)} tokens + {output} output reserved / {window} local limit (byte estimate, not exact).')
             if start > self.session.context_start:
                 self.emit('status', f'Context includes recent complete turns from message {start}; older turns remain saved.')
             self.emit('status', f'Model step {step + 1}/{self.config.max_steps} …')
