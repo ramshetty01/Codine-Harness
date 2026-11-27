@@ -103,20 +103,25 @@ jobs:
           CODINE_DOCKER_TESTS: '1'
           PYTHONPATH: ${{ github.workspace }}/scripts/offline_guard
         run: |
-          python -m unittest discover -s tests -p test_sandbox.py -v
-          python -m unittest discover -s tests -p test_prepare_environment.py -v
-          python -m unittest discover -s tests -p test_execution_profiles.py -v
-          python -m unittest discover -s tests -p test_repository_evals.py -v
-          python -m unittest discover -s tests -p test_repository_executor.py -v
+          python -m unittest discover -s tests -v
       - name: Docker repository evaluation
         env:
           PYTHONPATH: ${{ github.workspace }}/scripts/offline_guard
         run: python -m codine.evals --offline --executor docker --image "$EVAL_IMAGE" --suite repository --report .codine/evals/repository.json
+      - name: Repository repair pack and offline stress
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts/offline_guard
+        run: |
+          python -m codine.command_evals --offline --image "$EVAL_IMAGE"
+          python -m codine.stress --rounds 300 --files 5000 --commands 50
       - name: Retain Docker evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: docker-repository-evaluation
-          path: .codine/evals/repository.json
+          path: |
+            .codine/evals/repository.json
+            .codine/evals/command-attempts/*.json
+            .codine/evals/stress-attempts/*.json
           if-no-files-found: ignore
           retention-days: 7
