@@ -47,7 +47,7 @@ HELP = '''Commands
   exit, /quit           Save and quit
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
-       run_command, request_restart, update_plan.
+       run_command, request_restart, update_plan, read_artifact.
 Use /sandbox to inspect command isolation. File tools operate in the host workspace.
 '''
 
@@ -264,6 +264,8 @@ def main(argv=None):
         registry = build_registry(Workspace(APP_ROOT, lambda _: False), lambda: None)
         from .task_plan import register_plan_tool
         register_plan_tool(registry, None)  # Validate declaration only; startup executes no tools.
+        from .artifacts import register_artifact_tool
+        register_artifact_tool(registry, None)
         message = f'Startup check passed: {count} Python files, {len(registry.schemas())} tools. No API request or session write.'
         if args.json:
             JsonTerminal(Redactor()).emit('check', {'ok': True, 'message': message})
@@ -319,6 +321,9 @@ def main(argv=None):
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)
+        from .artifacts import ArtifactStore, register_artifact_tool
+        agent.artifact_store = ArtifactStore(config.project, workspace)
+        register_artifact_tool(agent.registry, agent.artifact_store)
         ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))

@@ -156,16 +156,19 @@ class Agent:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
                     else:
                         result = self.redactor.text(self.registry.execute(call))
+                    signature_result = result
+                    if getattr(self, 'artifact_store', None):
+                        result = self.artifact_store.offload(call['function']['name'], result)
                     self.session.pending['results'][call['id']] = result
                     self.save()  # Durable result before the next tool.
                     self.emit('tool_response', {'tool_call_id': call['id'], 'content': result})
                     self.emit('result', result)
                     try:
-                        stable = json.loads(result)
+                        stable = json.loads(signature_result)
                         if isinstance(stable, dict):
                             stable.pop('seconds', None)
                     except ValueError:
-                        stable = result
+                        stable = signature_result
                     signature = json.dumps([call['function']['name'], json.loads(call['function']['arguments']), stable], sort_keys=True)
                     signatures[signature] += 1
                     if signatures[signature] >= 3:
