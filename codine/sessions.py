@@ -74,6 +74,7 @@ class Session:
     plan: list = field(default_factory=list)
     plan_revision: int = 0
     title: str = ""
+    last_run: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -165,6 +166,8 @@ class SessionStore:
         from .task_plan import validate_plan
         validate_plan(session.plan)
         validate_title(session.title)
+        from .run_state import validate_run
+        validate_run(session.last_run)
         if type(session.plan_revision) is not int or session.plan_revision < 0:
             raise ValueError("Invalid plan revision.")
         validate_messages(session.messages)
@@ -222,6 +225,8 @@ class SessionStore:
             from .task_plan import validate_plan
             validate_plan(session.plan)
             validate_title(session.title)
+            from .run_state import validate_run
+            validate_run(session.last_run)
             if type(session.plan_revision) is not int or session.plan_revision < 0:
                 raise ValueError("Invalid plan revision.")
             validate_messages(session.messages)

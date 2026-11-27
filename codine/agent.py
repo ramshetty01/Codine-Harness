@@ -8,6 +8,7 @@ from .context import (project_context, estimate_tokens, ContextLimitError,
                       compaction_boundary, parse_summary, evidence_for)
 from .sessions import validate_messages
 from .task_plan import plan_context
+from .run_state import run_record
 
 SYSTEM = '''You are Codine, a practical Python terminal coding assistant. Reply in English.
 Use tools to inspect the actual workspace, implement requested changes, and verify them.
@@ -33,11 +34,17 @@ class Agent:
         self.config, self.provider, self.registry = config, provider, registry
         self.store, self.session, self.emit, self.redactor = store, session, emit, redactor
         self.restart_requested = False
+        self._save_failed = False
+        self._in_turn = False
+        self._terminal_emitted = False
+        self._phase = "preflight"
+        self._started_plan_revision = session.plan_revision
 
     def save(self):
         try:
             self.store.save(self.session)
         except (OSError, ValueError, TypeError) as error:
+            self._save_failed = True
             raise PersistenceError('Could not save session. Stopping to avoid unrecorded actions. Check disk space and session permissions.') from error
 
     def request_restart(self, approve):
@@ -52,15 +59,68 @@ class Agent:
         self.save()
 
     def finish(self, outcome):
-        self.emit('run_end', {'outcome': outcome, 'session': self.session.id})
+        self.session.last_run = run_record(self.session, outcome,
+            self._started_plan_revision if self._in_turn else self.session.plan_revision,
+            previous=self.session.last_run if self._in_turn else None)
+        self.save()
+        self._terminal_emitted = True
+        self.emit('run_end', {**self.session.last_run, 'session': self.session.id})
         return outcome
+
+    def run_turn(self, text):
+        self._in_turn = True
+        self._save_failed = False
+        self._terminal_emitted = False
+        self._phase = 'preflight'
+        self._started_plan_revision = self.session.plan_revision
+        self.session.last_run = run_record(self.session, 'running', self._started_plan_revision)
+        try:
+            return self.finish(self._run_turn(text))
+        except BaseException as error:
+            if isinstance(error, PersistenceError): reason = 'persistence_error'
+            elif isinstance(error, BudgetError): reason = 'budget_blocked'
+            elif isinstance(error, ContextLimitError): reason = 'context_limit'
+            elif isinstance(error, KeyboardInterrupt): reason = 'user_cancelled'
+            elif self._phase == 'provider': reason = 'provider_error'
+            elif self._phase == 'preflight': reason = 'configuration_error'
+            else: reason = 'execution_error'
+            unknown = bool(self.session.pending)
+            # Preserve the original error even when recovery or its save fails.
+            can_save = not self._save_failed
+            if can_save and self.session.pending:
+                try:
+                    self.session.repair_pending()
+                except BaseException:
+                    can_save = False
+            self.session.last_run = run_record(self.session,
+                'interrupted' if isinstance(error, KeyboardInterrupt) else 'failed',
+                self._started_plan_revision, previous=self.session.last_run,
+                reason=reason, unknown_actions=unknown)
+            if can_save:
+                try:
+                    self.save()
+                except BaseException:
+                    self.session.last_run['persistence'] = 'failed'
+            else:
+                self.session.last_run['persistence'] = 'not_attempted'
+            self._terminal_emitted = True
+            try:
+                self.emit('run_end', {**self.session.last_run, 'session': self.session.id})
+            except BaseException:
+                pass
+            raise
+        finally:
+            self._in_turn = False
 
     def complete(self, messages, schemas, ledger, emit=None):
         """Normal and summary calls use exactly the same accounting boundary."""
+        self._phase = 'accounting'
         if ledger:
             ledger.reserve()
             self.save()
+        self._phase = 'provider'
         reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, emit or self.emit)
+        self._phase = 'processing'
         if ledger:
             cost = getattr(usage, 'cost', None) if usage else None
             if cost is None:
@@ -104,7 +164,7 @@ class Agent:
             raise
         return projected
 
-    def run_turn(self, text):
+    def _run_turn(self, text):
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
         signatures = Counter()
         loop_detected = False
@@ -150,7 +210,7 @@ class Agent:
                     self.emit('status', 'No answer text returned. Try a shorter task or a larger output budget.')
                 if finish == 'length':
                     self.emit('status', 'Output reached the token limit; the answer may be incomplete.')
-                return self.finish('completed' if finish != 'length' else 'output_limit')
+                return 'completed' if finish != 'length' else 'output_limit'
             self.session.pending = {'reply': reply, 'results': {}}
             self.save()  # Durable intent BEFORE any side effect.
             try:
@@ -160,6 +220,7 @@ class Agent:
                     if self.restart_requested:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
                     else:
+                        self._phase = 'tool'
                         result = self.redactor.text(self.registry.execute(call))
                     signature_result = result
                     if getattr(self, 'artifact_store', None):
@@ -181,13 +242,12 @@ class Agent:
                 self.session.repair_pending()
                 self.save()  # Commit complete assistant/tool group.
             except KeyboardInterrupt:
-                self.recover_interrupt()
                 raise
             if self.restart_requested:
-                return self.finish('restart')
+                return 'restart'
             if loop_detected:
                 self.emit('status', 'Stopped: the same tool request and result repeated three times. Inspect the task before continuing.')
-                return self.finish('loop_limit')
+                return 'loop_limit'
         self.emit('status', f'Reached {self.config.max_steps} model steps. All tool results are saved; send a message to continue.')
 
-        return self.finish('step_limit')
+        return 'step_limit'

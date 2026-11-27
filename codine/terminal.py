@@ -327,7 +327,10 @@ class Terminal:
             return
         if kind == 'run_end':
             if text.get('outcome') not in ('completed', 'command'):
-                self.line('  Run stopped: ' + text['outcome'], 'accent')
+                detail = text.get('reason', text['outcome']).replace('_', ' ')
+                self.line('  Run stopped: ' + detail, 'accent')
+            elif text.get('task_state') in ('blocked', 'unresolved', 'stale_plan'):
+                self.line('  Task plan: ' + text['task_state'].replace('_', ' '), 'muted')
             return
         if kind == 'tool':
             self.tool_started = time.monotonic()

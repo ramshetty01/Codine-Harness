@@ -282,7 +282,7 @@ def main(argv=None):
         else:
             print(message)
         return 0
-    store = provider = None
+    store = provider = agent = None
     ui = JsonTerminal(Redactor()) if args.json else Terminal(Redactor())
     try:
         from .command_policy import CommandPolicy
@@ -364,15 +364,14 @@ def main(argv=None):
             except PersistenceError:
                 raise
             except KeyboardInterrupt:
-                agent.recover_interrupt()
                 ui.emit('end_stream', '')
-                ui.write('Turn interrupted. Completed results saved; unknown outcomes recorded. You can continue.')
-                agent.finish('interrupted')
+                if agent.session.last_run.get('persistence') == 'saved':
+                    ui.write('Turn interrupted. Completed results saved; unknown outcomes recorded. You can continue.')
+                else:
+                    ui.write('Turn interrupted. Session save failed; inspect recovery state before continuing.')
             except (APIError, OSError, ValueError, RuntimeError) as error:
-                # Unexpected tool failure may leave a pending batch. Finalize without replay.
-                agent.recover_interrupt()
+                # Agent owns recovery and emits the single structured run outcome.
                 show_error(ui, error)
-                agent.finish('failed')
             return False
         if one_shot is not None:
             if not one_shot.strip():
@@ -410,7 +409,9 @@ def main(argv=None):
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         show_error(ui, error)
-        ui.emit('run_end', {'outcome': 'failed'})
+        if agent is None or not agent._terminal_emitted:
+            ui.emit('run_end', {'outcome': 'failed', 'state': 'failed', 'reason': 'configuration_error',
+                                'retryable': False, 'verification': 'unverified'})
         return 1
     finally:
         if store:
