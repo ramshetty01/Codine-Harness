@@ -17,7 +17,7 @@ class JsonTerminal:
         if kind == 'result':
             self.last_result = data
         print(json.dumps({'version': 1, 'sequence': self.sequence, 'event': kind,
-                          'data': self.redactor.data(data)}, ensure_ascii=False), flush=True)
+                          'data': self.redactor.data(data)}, ensure_ascii=True), flush=True)
 
     def write(self, text=''):
         self.emit('notice', safe_text(text))

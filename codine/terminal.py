@@ -48,7 +48,7 @@ STYLE = Style.from_dict({
 
 def safe_text(text):
     # Never interpret terminal controls supplied by a file, tool, or model.
-    return re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', str(text)).replace('\r', '')
+    return re.sub(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]', '', str(text)).replace('\r', '')
 
 
 def clip(text, width):

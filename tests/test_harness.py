@@ -133,10 +133,11 @@ class HarnessTests(unittest.TestCase):
 
     def test_hardlink_edit_rejected(self):
         self.file('a.txt', 'original')
-        os.link(self.root / 'a.txt', self.root / 'b.txt')
         self.ws.read_file('a.txt')
-        with self.assertRaisesRegex(ValueError, 'Hard-linked'):
+        os.link(self.root / 'a.txt', self.root / 'b.txt')
+        with self.assertRaises(ValueError):
             self.ws.edit_file('a.txt', 'original', 'changed')
+        self.assertEqual((self.root / 'b.txt').read_text(), 'original')
 
     def test_syntax_check_does_not_execute(self):
         self.file('a.py', 'raise RuntimeError("do not run")\n')

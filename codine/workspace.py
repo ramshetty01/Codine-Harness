@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
+from .staging import _read_file
 
 EXCLUDED = {".git", ".codine", ".sessions", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
 MAX_FILE_BYTES = 2_000_000
@@ -53,11 +54,14 @@ class Workspace:
         return current
 
     def _read(self, path):
-        if path.stat().st_size > MAX_FILE_BYTES:
-            raise ValueError("File exceeds the 2 MB text-file limit.")
-        data = path.read_bytes()
-        if b"\x00" in data:
-            raise ValueError("Binary files are not supported.")
+        # Reopen every component beneath a directory descriptor: resolve() alone
+        # cannot prevent an attacker swapping a symlink after validation.
+        parts = path.relative_to(self.root).parts
+        descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            data = _read_file(descriptor, parts, MAX_FILE_BYTES)
+        finally:
+            os.close(descriptor)
         return data, data.decode("utf-8")
 
     def list_files(self, path=".", recursive=True, limit=200):

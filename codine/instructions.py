@@ -1,5 +1,7 @@
 """Bounded, non-executable project guidance. This is not a permission policy."""
+import os
 from pathlib import Path
+from .staging import _read_file
 
 NAMES = ('AGENTS.md', 'CODINE.md')
 LIMIT = 16000
@@ -15,8 +17,11 @@ def load_instructions(project):
             raise ValueError(f'{name} cannot be a symbolic link.')
         if not path.exists():
             continue
-        with path.open('rb') as handle:
-            data = handle.read(LIMIT + 1)
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            data = _read_file(descriptor, (name,), LIMIT)
+        finally:
+            os.close(descriptor)
         total += len(data)
         if total > LIMIT:
             raise ValueError('Root project instructions exceed 16 KB combined. Shorten AGENTS.md/CODINE.md.')
