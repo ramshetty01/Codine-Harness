@@ -42,10 +42,10 @@ class ChangeStore:
         finally:
             if os.path.exists(temporary): os.unlink(temporary)
 
-    def prepare(self, path, before, after_hash):
+    def prepare(self, path, before, after_hash, session_id=None):
         record = {'id': str(time.time_ns()) + '-' + uuid.uuid4().hex[:8],
                   'path': path, 'before': before.decode('utf-8') if before is not None else None,
-                  'after_hash': after_hash, 'undone': False}
+                  'after_hash': after_hash, 'undone': False, 'session_id': session_id}
         self.save(record)
         return record
 

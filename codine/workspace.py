@@ -172,7 +172,7 @@ class Workspace:
                 raise ValueError("File changed after the preview. Read it again.")
             if self.track_changes and record:
                 from .changes import ChangeStore
-                ChangeStore(self.root).prepare(target.relative_to(self.root).as_posix(), original, fingerprint(data))
+                ChangeStore(self.root).prepare(target.relative_to(self.root).as_posix(), original, fingerprint(data), session_id=getattr(self, "change_session_id", None))
                 self.resolve(target.relative_to(self.root).as_posix())
                 if original is None and target.exists():
                     raise ValueError('File appeared while saving checkpoint.')

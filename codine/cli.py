@@ -33,6 +33,7 @@ HELP = '''Commands
   /session              Current session details
   /sessions [query]     Search and select saved sessions
   /rename TITLE         Name the current session
+  /git [diff|staged PATH] Inspect Git status or a file diff
   /resume ID, /new      Resume saved history / start a new session
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
@@ -170,6 +171,15 @@ def command(text, agent, workspace, ui):
                 return command('/resume ' + selected, agent, workspace, ui)
         else:
             ui.write('\n'.join(session_label(row) for row in matching_sessions(rows, argument)) or 'No matching sessions.')
+    elif name == '/git':
+        parts = argument.split(maxsplit=1)
+        if not parts:
+            result = agent.git_inspector.status()
+        elif len(parts) == 2 and parts[0] in ('diff', 'staged'):
+            result = agent.git_inspector.diff(parts[1], staged=parts[0] == 'staged')
+        else:
+            raise ValueError('Usage: /git [diff|staged PATH]')
+        ui.write(json.dumps(result, indent=2))
     elif name == '/save':
         agent.save()
         ui.write('Saved ' + session.id)
@@ -195,6 +205,9 @@ def command(text, agent, workspace, ui):
             replacement.execution = dict(session.execution)
             agent.store.save(replacement)
         agent.session = replacement
+        workspace.change_session_id = replacement.id
+        if hasattr(agent, "git_inspector"):
+            agent.git_inspector.capture("session_start" if name == "/new" else "first_inspection")
         workspace.read_versions.clear()
         workspace.read_ranges.clear()
         agent.restart_requested = False
@@ -281,6 +294,8 @@ def main(argv=None):
         register_plan_tool(registry, None)  # Validate declaration only; startup executes no tools.
         from .artifacts import register_artifact_tool
         register_artifact_tool(registry, None)
+        from .git_awareness import GitInspector, register_git_tools
+        register_git_tools(registry, GitInspector(Workspace(APP_ROOT, lambda _: False), lambda: None))
         message = f'Startup check passed: {count} Python files, {len(registry.schemas())} tools. No API request or session write.'
         if args.json:
             JsonTerminal(Redactor()).emit('check', {'ok': True, 'message': message})
@@ -353,6 +368,14 @@ def main(argv=None):
         from .artifacts import ArtifactStore, register_artifact_tool
         agent.artifact_store = ArtifactStore(config.project, workspace)
         register_artifact_tool(agent.registry, agent.artifact_store)
+        from .git_awareness import GitInspector, GitError, register_git_tools
+        workspace.change_session_id = session.id
+        agent.git_inspector = GitInspector(workspace, lambda: agent.session, agent.save)
+        register_git_tools(agent.registry, agent.git_inspector)
+        try:
+            agent.git_inspector.capture('first_inspection' if resume else 'session_start')
+        except GitError as error:
+            ui.write(str(error))
         ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))
