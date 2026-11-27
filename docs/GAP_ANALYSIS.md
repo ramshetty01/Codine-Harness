@@ -131,10 +131,12 @@ Sources: [Pi skills](https://github.com/earendil-works/pi/blob/main/packages/cod
 | X5 | P2 | Versioned plugin/package manifests, dependency checks, compatibility checks, installation and removal |
 | X6 | P2 | A reusable Python SDK and bidirectional RPC interface; retain the existing JSONL transport |
 | X7 | P3 | A curated package registry/marketplace and signed/reproducible distribution |
+| X8 | P2 | Deferred tool discovery so large integrations do not place every schema in every request |
+| X9 | P2 | Controlled tool orchestration and result filtering for tasks spanning many external calls |
 
-Pi explicitly supports executable extensions, hot reload, RPC, and an SDK. Claude documents hooks, MCP, and plugins. MCP is listed here as a Claude/integration target, not asserted as a built-in Pi core feature. Codine's internal Python registry and JSONL output are useful starting points, not a complete extension API or RPC protocol.
+Pi explicitly supports executable extensions, hot reload, RPC, and an SDK. Claude documents hooks, MCP, and plugins. Current Pi documentation also describes built-in MCP connections over stdio and streamable HTTP, with deferred tool discovery and codemode exposure; these are gaps against both products, not merely an extension idea. Codine's internal Python registry and JSONL output are useful starting points, not a complete extension API or RPC protocol.
 
-Sources: [Pi extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), [Pi index](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/index.md), [Claude MCP](https://code.claude.com/docs/en/mcp.md), [Claude feature overview](https://code.claude.com/docs/en/features-overview).
+Sources: [Pi extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md), [Pi index](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/index.md), [Pi MCP](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md), [Claude MCP](https://code.claude.com/docs/en/mcp.md), [Claude feature overview](https://code.claude.com/docs/en/features-overview).
 
 ## 8. Providers, streaming, and cost controls
 
@@ -234,7 +236,7 @@ Existing tests cover parts of Q5–Q7. Expand them rather than treating them as 
 | 3. Long-task reliability | C1–C6, A3–A5 | A task survives compaction and interruption without losing requirements or replaying actions |
 | 4. Daily terminal workflow | A1–A2, R2–R6, U1–U5, S1–S4, M1–M5 | A user can steer work, inspect outputs/diffs, switch/resume sessions, and recover a related change set |
 | 5. Project customization | I1–I5, X1–X3 | A trusted skill and extension load/reload through documented interfaces with failure isolation |
-| 6. External integrations | X4–X6, M6–M8 | One MCP integration and one SDK/RPC client work with explicit permissions and cost accounting |
+| 6. External integrations | X4–X6, X8–X9, M6–M8 | One MCP integration and one SDK/RPC client work with explicit permissions and cost accounting |
 | 7. Isolated parallel work | P1–P4, S5–S7 | Two workers run without file conflicts or independent budget resets; cancellation reaches both |
 | 8. Distribution and optional products | D1–D9, P5–P6, U6–U8, X7 | Ship only surfaces justified by usage; maintain compatibility and recovery tests |
 
