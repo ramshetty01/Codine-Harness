@@ -102,8 +102,8 @@ class DockerSandbox:
                 '--security-opt', 'no-new-privileges:true', '--pids-limit', '32',
                 '--memory', '128m', '--memory-swap', '128m', '--cpus', '1',
                 '--user', '65534:65534', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m',
-                '--log-driver', 'none', '--workdir', '/tmp',
-                self.image, 'python', '-I', '-B', '-c', RUNNER]
+                '--log-driver', 'none', '--workdir', '/tmp', '--entrypoint', '/usr/bin/env',
+                self.image, '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'python', '-I', '-B', '-c', RUNNER]
 
     def evaluate(self, source, inputs):
         return self._evaluate_payload({'source': source, 'inputs': inputs})

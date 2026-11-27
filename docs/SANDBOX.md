@@ -179,6 +179,38 @@ and must not be treated as candidate success. Logs are untrusted command output.
 The executor forcibly removes its uniquely named container in `finally`, including
 interrupts; failure to confirm cleanup raises an explicit error.
 
-This is an execution API with real Docker boundary tests, not yet the normal
-interactive `/run` tool. Interactive approvals, policy and workspace review remain
-E1. No fallback to host execution or paid inference is used.
+This execution API has real Docker boundary tests. Its interactive integration
+and approval policy are described in E1 below. No fallback to host execution or
+paid inference is used.
+
+### Interactive command isolation (E1)
+
+Start `codine --executor docker --image python:3.12-slim` to sandbox the
+`run_command` tool. The image must already exist locally. Startup resolves and
+records its immutable ID; missing Docker or image fails closed, never switches
+to host execution. `/sandbox` displays the effective policy and resolved image.
+The welcome text and toolbar also identify host versus Docker execution.
+
+In Docker mode the model must provide an explicit `files` array alongside
+`argv`, optional snapshot-relative `cwd`, and a bounded `timeout`. Codine reads
+and validates these files **before** asking permission. The approval names the
+image, command, cwd, timeout, every selected path/size/SHA-256, and the combined
+snapshot digest. Execution uses those exact captured bytes even if a file changes
+while approval is pending. Rejected or invalid requests never execute. Planning
+mode disables command execution; JSON/noninteractive approval remains denied.
+
+Host mode remains available through `--executor host`, and is the default for
+new sessions for compatibility. Its approval explicitly states that the command
+runs with your user permissions outside a sandbox. Docker isolates **commands**,
+not file read/edit tools: those still operate on the host project with existing
+path, diff and approval controls. Neither mode makes an arbitrary repository safe.
+
+Sessions persist executor settings and pinned Docker image. `--resume` and
+`/restart` retain them. An explicit `--executor host` overrides them visibly.
+Switching sessions inside an existing process refuses different execution settings;
+start `codine --resume ID` to restore that session's executor. The image's default
+entrypoint is overridden and even the Python bootstrap starts under `env -i`;
+image-provided environment values cannot flow into candidate execution.
+
+Prepared custom images must contain `/usr/bin/env` and Python on the fixed PATH
+for the bootstrap, in addition to any tools required by the selected command.

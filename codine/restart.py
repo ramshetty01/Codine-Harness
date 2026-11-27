@@ -34,6 +34,15 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
     if probe.returncode:
         raise ValueError('Startup check failed. Current process kept running.\n' + (probe.stderr or probe.stdout)[-3000:])
     argv = [sys.executable, *entry, '--project', agent.session.project, '--resume', agent.session.id]
+    execution = getattr(agent.session, 'execution', {})
+    if execution:
+        if execution.get('executor') not in ('host', 'docker'):
+            raise ValueError('Invalid saved executor; restart cancelled.')
+        argv.extend(['--executor', execution['executor']])
+        if execution['executor'] == 'docker':
+            if not execution.get('image'):
+                raise ValueError('Missing Docker image; restart cancelled.')
+            argv.extend(['--image', execution['image']])
     if plan:
         argv.append('--plan')
     agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')

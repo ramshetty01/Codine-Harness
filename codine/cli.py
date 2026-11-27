@@ -15,12 +15,13 @@ from .instructions import load_instructions
 from .restart import check_sources, restart_process
 from .sessions import Session, SessionStore
 from .terminal import Terminal
-from .tools import build_registry
+from .tools import build_registry, execution_status
 from .workspace import Workspace
 
 HELP = '''Commands
   /help                 Show this guide
   /plan                 Enter read-only planning; /permissions ask exits
+  /sandbox              Inspect effective command isolation and image
   /instructions         Show loaded root project guidance
   /budget               Show session spending; reconcile AMOUNT if unknown
   /paste                Read multiple lines until /end (fallback for paste)
@@ -41,7 +42,7 @@ HELP = '''Commands
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
        run_command, request_restart.
-Commands run as your user, not in a sandbox. Inspect every command approval.
+Use /sandbox to inspect command isolation. File tools operate in the host workspace.
 '''
 
 
@@ -55,6 +56,8 @@ def parser():
     result.add_argument('--prompt', help='Run one prompt; stdin pipes are also accepted')
     result.add_argument('--provider', choices=('nvidia', 'openrouter'))
     result.add_argument('--model', help='Explicit model ID for the selected provider')
+    result.add_argument('--executor', choices=('host', 'docker'), help='Command executor; resume retains saved choice, new sessions default host')
+    result.add_argument('--image', help='Locally installed Docker image; resolved to an immutable image ID')
     result.add_argument('--plan', action='store_true', help='Read-only tools; no commands, edits, or model-requested restart')
     result.add_argument('--json', action='store_true', help='One-shot JSONL event output; approvals denied')
     result.add_argument('--check', action='store_true', help='Validate startup without credentials or session writes')
@@ -85,6 +88,8 @@ def command(text, agent, workspace, ui):
     session = agent.session
     if name == '/help':
         ui.write(HELP)
+    elif name == '/sandbox':
+        ui.write(execution_status(workspace))
     elif name == '/plan':
         workspace.mode = 'plan'
         ui.write('Planning mode: read/search/syntax tools only. Use /permissions ask to enable changes.')
@@ -136,9 +141,12 @@ def command(text, agent, workspace, ui):
             candidate = agent.store._read_session(argument)
             if candidate.provider != agent.config.provider:
                 raise ValueError('Session uses another provider. Restart with --resume ID to select its provider.')
+            if candidate.execution != session.execution:
+                raise ValueError('Session uses different execution settings. Start codine --resume ID to restore them safely.')
             replacement = agent.store.load(argument)
         else:
             replacement = Session.create(workspace.root, session.model, SYSTEM, provider=session.provider)
+            replacement.execution = dict(session.execution)
             agent.store.save(replacement)
         agent.session = replacement
         workspace.read_versions.clear()
@@ -230,15 +238,31 @@ def main(argv=None):
             config = Config.load(config.project, provider=session.provider, model=args.model or session.model)
             if args.model:
                 session.model = args.model
+        execution = session.execution
+        if not isinstance(execution, dict) or execution.get('executor', 'host') not in ('host', 'docker'):
+            raise ValueError('Invalid saved executor settings; refusing to select host implicitly.')
+        executor_name = args.executor or execution.get('executor', 'host')
+        image = args.image or execution.get('image') or 'python:3.12-slim'
+        command_executor = None
+        if executor_name == 'docker':
+            from .repository_executor import RepositoryExecutor
+            command_executor = RepositoryExecutor(image=image, timeout=30)
+        elif args.image:
+            raise ValueError('--image requires --executor docker.')
+        session.execution = {'executor': executor_name}
+        if command_executor:
+            session.execution['image'] = command_executor.image
         store.save(session)
         provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
+        workspace.command_executor = command_executor
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
-        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model}
+        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
         ui.welcome(config.project, session.id, session.model)
+        ui.write(execution_status(workspace))
         if not config.api_key:
             ui.write(f'No {config.provider.upper()}_API_KEY configured. Offline commands are available; model requests need a key.')
         one_shot = args.prompt
@@ -298,7 +322,7 @@ def main(argv=None):
         agent.save()
         ui.write('Saved. Goodbye!')
         return 0
-    except (OSError, ValueError, PersistenceError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         show_error(ui, error)
         ui.emit('run_end', {'outcome': 'failed'})
         return 1

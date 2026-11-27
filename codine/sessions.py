@@ -65,6 +65,7 @@ class Session:
     messages: list
     provider: str = "nvidia"
     billing: dict = field(default_factory=dict)
+    execution: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)

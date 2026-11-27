@@ -84,6 +84,41 @@ def run_command(workspace, argv, cwd='.', timeout=30):
             'seconds': round(time.monotonic() - started, 2)}
 
 
+def execution_status(workspace):
+    executor = getattr(workspace, 'command_executor', None)
+    if executor is None:
+        return 'HOST: commands run with your user filesystem/network permissions, outside a sandbox.'
+    return ('DOCKER: command execution only; no host mounts or network; non-root/read-only root. '
+            'File read/edit tools still operate in the host workspace. Image: ' + executor.image)
+
+
+def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
+    from .staging import snapshot_repository
+    from .sandbox import SandboxError
+    if not 1 <= timeout <= 120:
+        raise ValueError('Command timeout must be 1–120 seconds.')
+    executor = workspace.command_executor
+    argv = tuple(argv)
+    manifest = snapshot_repository(workspace.root, files)
+    # Validate before showing approval and retain these exact immutable bytes.
+    try:
+        executor.prepare_request(manifest, argv, cwd=cwd)
+    except SandboxError as error:
+        raise ValueError(str(error)) from error
+    listing = '\n'.join(f'{entry.path}  {entry.size_bytes} bytes  sha256:{entry.sha256}' for entry in manifest.files)
+    description = (f'Docker command: {shlex.join(argv)}\nCwd: /tmp/project/{cwd}\n'
+                   f'Image: {executor.image}\nTimeout: {timeout}s\n'
+                   f'Snapshot SHA256: {manifest.digest}\nSelected files:\n{listing}\n'
+                   'No host mounts, no network; only this snapshot enters the container. Approve?')
+    if not workspace.approve(description):
+        return {'status': 'declined', 'exit_code': None, 'stdout': '', 'stderr': ''}
+    executor.timeout = timeout
+    try:
+        return executor.execute(manifest, argv, cwd=cwd)
+    except SandboxError as error:
+        raise ValueError(str(error)) from error
+
+
 def build_registry(workspace, request_restart):
     registry = ToolRegistry(lambda spec: workspace.mode != "plan" or spec.effect == "read")
     def add(name, description, handler, properties, required=(), effect="read"):
@@ -106,7 +141,13 @@ def build_registry(workspace, request_restart):
         {'path': string, 'start_line': integer(1, 10000000), 'end_line': integer(1, 10000000), 'new_text': string, 'expected_sha256': string},
         ('path', 'start_line', 'end_line', 'new_text', 'expected_sha256'), effect='write')
     add('check_python', 'Validate Python syntax without executing the file.', workspace.check_python, {'path': string}, ('path',))
-    add('run_command', 'Run an argv array without shell expansion, after explicit approval. Commands have full user filesystem/network privileges. Output bounded; default timeout 30 seconds. Use python for this harness interpreter.',
-        lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',), effect='execute')
+    if getattr(workspace, 'command_executor', None) is not None:
+        add('run_command', 'Run argv in an isolated Docker container after approval. Explicit files are REQUIRED: only the staged UTF-8 snapshot enters the container. cwd is relative to that snapshot. No host mounts/network or installed host dependencies. File tools themselves still use the host workspace.',
+            lambda **args: run_docker_command(workspace, **args),
+            {'argv': {'type': 'array', 'items': string}, 'files': {'type': 'array', 'items': string},
+             'cwd': string, 'timeout': integer(1, 120)}, ('argv', 'files'), effect='execute')
+    else:
+        add('run_command', 'Run an argv array without shell expansion, after explicit approval. Commands have full user filesystem/network privileges. Output bounded; default timeout 30 seconds. Use python for this harness interpreter.',
+            lambda **args: run_command(workspace, **args), {'argv': {'type': 'array', 'items': string}, 'cwd': string, 'timeout': integer(1, 120)}, ('argv',), effect='execute')
     add('request_restart', 'Ask permission to save and restart Codine at a completed tool boundary, validating its code first. Reloads edited harness code and tools; keeps session. Do not call for ordinary project edits.', request_restart, {}, effect="restart")
     return registry

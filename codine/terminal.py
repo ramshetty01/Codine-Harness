@@ -17,6 +17,7 @@ COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/budget': 'View or reconcile request costs',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
+    '/sandbox': 'Inspect command isolation',
     '/help': 'Explore commands', '/paste': 'Write a multiline task',
     '/session': 'Current session details', '/sessions': 'Browse saved sessions',
     '/resume': 'Resume a session ID', '/new': 'Start a new conversation',
@@ -157,7 +158,8 @@ class Terminal:
             return self.clean(state)
         mode = {'ask': 'ask before edits', 'plan': 'PLAN · read only', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
         # Mode is first so narrow terminals never hide the execution policy.
-        text = f'  {mode}  ·  {state.get("tokens", 0):,} tokens'
+        execution = 'Docker' if state.get('executor') == 'docker' else 'host'
+        text = f'  {execution} · {mode}  ·  {state.get("tokens", 0):,} tokens'
         model = state.get('model', '')
         if model:
             text += '  ·  ' + model

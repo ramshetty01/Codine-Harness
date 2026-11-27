@@ -44,7 +44,8 @@ class RepositoryExecutor(DockerSandbox):
         args[-1] = COMMAND_RUNNER
         return args
 
-    def execute(self, manifest, argv, *, cwd='.', env=None):
+    @staticmethod
+    def prepare_request(manifest, argv, *, cwd='.', env=None):
         if not isinstance(manifest, Manifest) or not manifest.files:
             raise SandboxError('A nonempty staged Manifest is required.')
         limits = StagingLimits()
@@ -84,8 +85,10 @@ class RepositoryExecutor(DockerSandbox):
                 any(not isinstance(value, str) or '\0' in value or len(value.encode()) > 1024
                     for value in env.values())):
             raise SandboxError('Only bounded, explicitly allowed build environment settings are accepted.')
-        result = self._run_payload({'files': files, 'argv': list(argv), 'cwd': cwd, 'env': env},
-                                   payload_limit=50_000_000)
+        return {'files': files, 'argv': list(argv), 'cwd': cwd, 'env': dict(env)}
+
+    def execute(self, manifest, argv, *, cwd='.', env=None):
+        payload = self.prepare_request(manifest, argv, cwd=cwd, env=env)
+        result = self._run_payload(payload, payload_limit=50_000_000)
         result.update({'manifest_digest': manifest.digest, 'argv': list(argv), 'cwd': cwd})
-        # completed means a process finished, never that its tests passed.
         return result

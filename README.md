@@ -214,9 +214,9 @@ python tests/live_smoke.py
 
 That test automatically approves the small task in a disposable temporary workspace. Normal CLI sessions keep approvals on.
 
-This MVP has linear sessions, one active task, no plugin ecosystem, no subagents, no sandbox, and no hot reload. It is a practical learning harness, not full Pi/Codex parity. Local pre-refactor copies are preserved under ignored `.codine/backups/pre-mvp/`; your sample `example.py` is kept separate from implementation commits.
+This MVP has linear sessions, one active task, no plugin ecosystem, no subagents, and no hot reload. Commands can use the explicit Docker executor; file tools still operate on the host. It is a practical learning harness, not full Pi/Codex parity. Local pre-refactor copies are preserved under ignored `.codine/backups/pre-mvp/`; your sample `example.py` is kept separate from implementation commits.
 
-The [evaluation sandbox](docs/SANDBOX.md) uses disposable Docker containers without network or host mounts. It is tested for single-file Python exercises and is separate from the interactive shell tool. Enable real Docker boundary tests with `CODINE_DOCKER_TESTS=1`; no model inference is involved.
+The [Docker executor](docs/SANDBOX.md) uses disposable containers without network or host mounts. Launch `codine --executor docker --image python:3.12-slim` with an already installed image to isolate interactive commands. `/sandbox` shows the effective mode; Docker requests require explicit file selection and approval of the snapshot hashes. Sessions and restarts retain the pinned executor image. New sessions default to host mode, whose approvals explicitly describe full user permissions. Enable real Docker boundary tests with `CODINE_DOCKER_TESTS=1`; no model inference is involved.
 
 ## Preview the terminal design offline
 
