@@ -35,6 +35,10 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
     if probe.returncode:
         raise ValueError('Startup check failed. Current process kept running.\n' + (probe.stderr or probe.stdout)[-3000:])
     argv = [sys.executable, *entry, '--project', agent.session.project, '--resume', agent.session.id]
+    if agent.session.provider == 'custom':
+        from .custom_endpoint import match_session
+        match_session(agent.config,agent.session)
+        argv.extend(['--provider','custom','--endpoint',agent.config.custom_endpoint,'--allow-unmetered-custom'])
     execution = getattr(agent.session, 'execution', {})
     if execution:
         if execution.get('executor') not in ('host', 'docker'):

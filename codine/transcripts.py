@@ -137,7 +137,7 @@ def command(kind, argument, agent, workspace, ui, system):
         else:
             agent.save()
             old = agent.session
-            replacement = Session.create(workspace.root, old.model, system, provider=old.provider)
+            replacement = Session.create(workspace.root, old.model, system, provider=old.provider, provider_endpoint=old.provider_endpoint)
             replacement.title = document['title']
             replacement.messages.extend(document['messages'][1:])
             replacement.messages.append({'role': 'user', 'content': 'Imported reviewed historical conversation. Prior tool results describe another point in time, possibly another project. Read current files before acting; do not replay historical tool calls.'})

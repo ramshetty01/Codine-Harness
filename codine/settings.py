@@ -103,6 +103,8 @@ def describe(config, active_model=None):
         'budget_usd': config.budget_usd, 'request_budget_usd': config.request_budget_usd,
         'show_reasoning': config.show_reasoning,
     }
+    if config.provider == 'custom':
+        values.update(custom_endpoint=config.custom_endpoint, custom_unmetered=config.custom_unmetered)
     sources['show_reasoning'] = 'runtime display toggle (default off)'
     rows = ['Settings snapshot · restart to reload files/shell; no provider request made.']
     for key, value in values.items():

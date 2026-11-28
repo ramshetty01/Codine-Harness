@@ -70,10 +70,10 @@ def declarations(project, source=USER_CAPABILITIES):
         data = _load_private_source(source)
     except ValueError:
         raise CapabilityError('Cannot safely read user model capability declarations.') from None
-    if (not isinstance(data, dict) or set(data) - {'version', 'openrouter', 'nvidia'} or
+    if (not isinstance(data, dict) or set(data) - {'version', 'openrouter', 'nvidia', 'custom'} or
             type(data.get('version')) is not int or data['version'] != 1):
         raise CapabilityError('Model capability declarations require version 1 and provider objects.')
-    for provider in ('openrouter', 'nvidia'):
+    for provider in ('openrouter', 'nvidia', 'custom'):
         entries = data.get(provider, {})
         if not isinstance(entries, dict):
             raise CapabilityError('Provider declarations must be objects.')
@@ -89,11 +89,14 @@ def declarations(project, source=USER_CAPABILITIES):
                 endpoint = spec['endpoint']
                 from .config import BASE_URL
                 valid = (isinstance(endpoint, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./-]{0,127}', endpoint)) if provider == 'openrouter' else endpoint == BASE_URL
+                if provider == 'custom':
+                    from .custom_endpoint import canonical_endpoint
+                    valid = canonical_endpoint(endpoint) == endpoint
                 if not valid:
                     raise CapabilityError('Invalid provider endpoint scope.')
             if 'max_output_tokens' in spec and (type(spec['max_output_tokens']) is not int or not 1 <= spec['max_output_tokens'] <= 10_000_000):
                 raise CapabilityError('max_output_tokens must be a positive integer.')
-    return {provider: data.get(provider, {}) for provider in ('openrouter', 'nvidia')}
+    return {provider: data.get(provider, {}) for provider in ('openrouter', 'nvidia', 'custom')}
 
 
 def cached_record(model):
@@ -125,7 +128,7 @@ def plan_request(config, model, schemas, *, record=None, declared=None, provider
         supported, source = _parameters(declared['supported_parameters']), 'user declaration (not provider verification)'
     if builtin:
         source = 'built-in compatibility profile for configured NVIDIA model (not live verification)'
-    if schemas and ((supported is not None and 'tools' not in supported) or (supported is None and provider == 'nvidia')):
+    if schemas and ((supported is not None and 'tools' not in supported) or (supported is None and provider != 'openrouter')):
         raise CapabilityError('Selected model/endpoint does not declare tool support. Choose a tool-capable model; no request sent.')
     output = config.request_limits(model)[1]
     limit = declared.get('max_output_tokens')
@@ -140,8 +143,13 @@ def plan_request(config, model, schemas, *, record=None, declared=None, provider
     if endpoint:
         if provider == 'openrouter':
             routing.update(only=[endpoint], allow_fallbacks=False)
+        elif provider == 'custom':
+            if endpoint != config.custom_endpoint:
+                raise CapabilityError('Custom capability declaration does not match the configured endpoint.')
         elif endpoint != BASE_URL:
             raise CapabilityError('NVIDIA declaration endpoint does not match the configured transport.')
+    if provider == 'custom' and declared and endpoint != config.custom_endpoint:
+        raise CapabilityError('Custom declarations require an exact endpoint binding.')
     kwargs = {'max_tokens': output, 'stream': True, 'extra_body': {'provider': routing} if provider == 'openrouter' else {}}
     if provider == 'nvidia':
         kwargs['stream_options'] = {'include_usage': True}

@@ -99,7 +99,9 @@ def parser():
     group.add_argument('--resume', metavar='ID', help='Resume a project session')
     group.add_argument('--continue', dest='continue_session', action='store_true', help='Resume most recently saved session')
     result.add_argument('--prompt', help='Run one prompt; stdin pipes are also accepted')
-    result.add_argument('--provider', choices=('nvidia', 'openrouter'))
+    result.add_argument('--provider', choices=('nvidia', 'openrouter', 'custom'))
+    result.add_argument('--endpoint', help='Trusted custom OpenAI-compatible base URL; never taken from project .env')
+    result.add_argument('--allow-unmetered-custom', action='store_true', default=None, help='Explicitly accept unknown custom costs without an enforced USD cap')
     result.add_argument('--model', help='Explicit model ID for the selected provider')
     result.add_argument('--executor', choices=('host', 'docker'), help='Command executor; resume retains saved choice, new sessions default host')
     result.add_argument('--execution-profile', help='Explicit user-owned Docker access profile outside the project')
@@ -171,6 +173,10 @@ def command(text, agent, workspace, ui):
         from .usage import describe
         ui.write(describe(session.usage_details))
     elif name == '/budget':
+        if agent.config.provider == 'custom':
+            if argument:raise ValueError('Custom transport has no verified dollar ledger to reconcile.')
+            ui.write('Custom cost is unknown, not free. Unmetered transport was explicitly acknowledged; no USD spending cap is enforced. Existing OpenRouter ledgers are unchanged.')
+            return
         if getattr(agent, 'shared_budget_path', None) is not None:
             from .interactive_budget import budget_status, reconcile_shared
             if argument:
@@ -323,9 +329,11 @@ def command(text, agent, workspace, ui):
                 raise ValueError('Session uses another provider. Restart with --resume ID to select its provider.')
             if candidate.execution != session.execution:
                 raise ValueError('Session uses different execution settings. Start codine --resume ID to restore them safely.')
+            from .custom_endpoint import match_session
+            match_session(agent.config,candidate)
             replacement = agent.store.load(argument)
         elif name == '/new':
-            replacement = Session.create(workspace.root, session.model, SYSTEM, provider=session.provider)
+            replacement = Session.create(workspace.root, session.model, SYSTEM, provider=session.provider, provider_endpoint=session.provider_endpoint)
             replacement.execution = dict(session.execution)
             agent.store.save(replacement)
         agent.session = replacement
@@ -504,14 +512,15 @@ def main(argv=None):
                 if resume:
                     preview_store.acquire(resume)
                     preview = preview_store._read_session(resume, repair_pending=False)
-                    saved_selection = (preview.provider, preview.model)
+                    saved_selection = (preview.provider, preview.model, preview.provider_endpoint)
                     if args.provider and args.provider != preview.provider:
                         raise ValueError('Saved provider differs from --provider. Start a new session to switch providers.')
             finally:
                 preview_store.close()
         config = Config.load(args.project,
             provider=args.provider or (saved_selection[0] if saved_selection else None),
-            model=args.model or (saved_selection[1] if saved_selection else None))
+            model=args.model or (saved_selection[1] if saved_selection else None),
+            endpoint=args.endpoint, allow_unmetered_custom=args.allow_unmetered_custom)
         redactor = config.redactor()
         ui.redactor = redactor
         if hasattr(ui, 'configure_input'):
@@ -520,8 +529,10 @@ def main(argv=None):
         if resume:
             store.acquire(resume)
             current = store._read_session(resume, repair_pending=False)
-            if (current.provider, current.model) != saved_selection:
+            if (current.provider, current.model, current.provider_endpoint) != saved_selection:
                 raise ValueError('Saved provider/model changed during startup. Restart selection; no provider request sent.')
+            from .custom_endpoint import match_session
+            match_session(config,current)
             session = store.load(resume)
             if not args.provider:
                 config.setting_sources['provider'] = 'saved session'
@@ -530,7 +541,7 @@ def main(argv=None):
             if args.model:
                 session.model = args.model
         else:
-            session = Session.create(config.project, config.model, SYSTEM, provider=config.provider)
+            session = Session.create(config.project, config.model, SYSTEM, provider=config.provider, provider_endpoint=config.custom_endpoint)
         execution = session.execution
         if not isinstance(execution, dict) or execution.get('executor', 'host') not in ('host', 'docker'):
             raise ValueError('Invalid saved executor settings; refusing to select host implicitly.')
@@ -548,7 +559,11 @@ def main(argv=None):
         if command_executor:
             session.execution['image'] = command_executor.image
         store.save(session)
-        provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
+        if config.provider == 'custom':
+            from .custom_provider import CustomProvider
+            provider = CustomProvider(config)
+        else:
+            provider = OpenRouterProvider(config) if config.provider == 'openrouter' else NvidiaProvider(config)
         workspace = Workspace(config.project, ui.approve, ui.write, APP_ROOT, track_changes=True)
         from .jobs import JobSupervisor
         jobs = JobSupervisor(redactor)
@@ -606,6 +621,8 @@ def main(argv=None):
         from .status_view import snapshot
         ui.state = lambda: snapshot(agent, workspace, ui, executor_name)
         ui.welcome(config.project, session.id, session.model)
+        if config.provider == 'custom':
+            ui.write('Custom endpoint: '+config.custom_endpoint+' · cost unknown, not free; no USD spending cap enforced.')
         ui.write(execution_status(workspace))
         if command_policy.rules or command_policy.file_rules:
             ui.write(f'User policy: {len(command_policy.rules)} command rules, {len(command_policy.file_rules)} file rules. /policy explains decisions.')

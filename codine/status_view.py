@@ -61,7 +61,7 @@ def snapshot(agent, workspace, ui, executor=None):
             return None
     return {'mode': workspace.mode, 'executor': executor or getattr(workspace, 'executor', 'host'),
             'model': session.model, 'phase': phase, 'queue': queue, 'context': context,
-            'cost': {'spent': amount('spent'), 'limit': amount('limit'),
+            'cost': {'mode': 'unmetered' if session.provider == 'custom' else 'accounted', 'spent': amount('spent'), 'limit': amount('limit'),
                      'pending': amount('pending'), 'unsettled': billing.get('pending') is not None,
                      'blocked': bool(billing.get('blocked'))}}
 
@@ -90,6 +90,9 @@ def lines(state, *, compact=False):
     else:
         result.append('ctx est unknown · no prepared snapshot')
     cost = state.get('cost', {})
+    if cost.get('mode')=='unmetered':
+        result.append('cost unknown · custom unmetered · no USD cap')
+        return result
     spent = '$' + cost['spent'] if cost.get('spent') is not None else 'unknown'
     if cost.get('unsettled'):
         amount = '$' + cost['pending'] if cost.get('pending') is not None else 'unknown'

@@ -21,6 +21,9 @@ class Config:
     model_limits: dict = field(default_factory=dict)
     show_reasoning: bool = False
     provider: str = "nvidia"
+    custom_endpoint: str | None = None
+    custom_unmetered: bool = False
+    _custom_forbidden_keys: tuple = field(default_factory=tuple, repr=False)
     budget_usd: str = "3.50"
     request_budget_usd: str = "0.25"
     router_max_price: dict | None = None
@@ -37,7 +40,7 @@ class Config:
         return window, output
 
     @classmethod
-    def load(cls, project, provider=None, model=None):
+    def load(cls, project, provider=None, model=None, *, endpoint=None, allow_unmetered_custom=None):
         project = Path(project).resolve()
         if not project.is_dir():
             raise ValueError("Project must be an existing directory.")
@@ -72,19 +75,33 @@ class Config:
                 raise ValueError("Model limits must be positive integer token counts.")
         values["model_limits"] = limits
         provider = settings.get("provider", "CODINE_PROVIDER", "nvidia", cli=provider)
-        if provider not in ("nvidia", "openrouter"):
-            raise ValueError("CODINE_PROVIDER must be nvidia or openrouter.")
+        if provider == 'custom':
+            from .custom_endpoint import trusted
+            if trusted(settings,'provider','CODINE_PROVIDER','nvidia',provider if settings.sources['provider']=='CLI' else None) != 'custom':
+                raise ValueError('Custom provider selection must come from CLI, shell or user configuration.')
+        if provider not in ("nvidia", "openrouter", "custom"):
+            raise ValueError("CODINE_PROVIDER must be nvidia, openrouter or custom.")
         if provider == "openrouter":
             chosen = settings.get("model", "OPENROUTER_MODEL", "", cli=model)
+        elif provider == 'custom':
+            from .custom_endpoint import trusted
+            chosen = trusted(settings,'model','CODINE_CUSTOM_MODEL','',model)
         else:
             chosen = settings.get("model", "NVIDIA_MODEL", DEFAULT_MODEL, cli=model)
         if not chosen:
-            raise ValueError("Set OPENROUTER_MODEL explicitly before selecting OpenRouter.")
+            raise ValueError("Set OPENROUTER_MODEL explicitly." if provider == "openrouter" else "Set trusted CODINE_CUSTOM_MODEL or --model explicitly.")
         from .budget import Budget
         budget = settings.budget('budget_usd', 'CODINE_BUDGET_USD', '3.50')
         cap = settings.budget('request_budget_usd', 'CODINE_REQUEST_BUDGET_USD', '0.25')
         Budget.create(budget, cap)  # Validate startup values, never touch a ledger.
-        key = settings.get('api_key', 'OPENROUTER_API_KEY' if provider == 'openrouter' else 'NVIDIA_API_KEY', '')
+        if provider == 'custom':
+            from .custom_endpoint import configure
+            custom = configure(settings, endpoint, allow_unmetered_custom)
+            key = custom.pop('api_key'); values.update(custom)
+        else:
+            if endpoint is not None or allow_unmetered_custom:
+                raise ValueError('--endpoint/--allow-unmetered-custom require --provider custom.')
+            key = settings.get('api_key', 'OPENROUTER_API_KEY' if provider == 'openrouter' else 'NVIDIA_API_KEY', '')
         settings.sources['project'] = 'CLI/current directory'
         result = cls(project=project, model=chosen, provider=provider, api_key=key,
                      budget_usd=budget, request_budget_usd=cap,

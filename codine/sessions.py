@@ -69,6 +69,7 @@ class Session:
     model: str
     messages: list
     provider: str = "nvidia"
+    provider_endpoint: str | None = None
     billing: dict = field(default_factory=dict)
     execution: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
@@ -91,9 +92,9 @@ class Session:
     usage: dict = field(default_factory=lambda: {"input": 0, "output": 0, "total": 0})
 
     @classmethod
-    def create(cls, project, model, instructions, provider="nvidia"):
+    def create(cls, project, model, instructions, provider="nvidia", provider_endpoint=None):
         ident = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
-        return cls(ident, str(Path(project).resolve()), model, [{"role": "system", "content": instructions}], provider=provider)
+        return cls(ident, str(Path(project).resolve()), model, [{"role": "system", "content": instructions}], provider=provider, provider_endpoint=provider_endpoint)
 
     def repair_pending(self):
         if not self.pending:
@@ -180,6 +181,8 @@ class SessionStore:
     def _save_storage(self, session):
         from .usage import validate as validate_usage
         validate_usage(session.usage_details)
+        from .custom_endpoint import validate_session_endpoint
+        validate_session_endpoint(session)
         from .task_plan import validate_plan
         validate_plan(session.plan)
         validate_title(session.title)
@@ -242,8 +245,10 @@ class SessionStore:
             session = Session(**data)
             if type(session.version) is not int or session.version != 1 or session.id != ident or session.project != (expected_project or str(self.project)):
                 raise ValueError("Unsupported session version, ID, or workspace.")
-            if session.provider not in ('nvidia', 'openrouter'):
+            if session.provider not in ('nvidia', 'openrouter', 'custom'):
                 raise ValueError('Unknown saved provider.')
+            from .custom_endpoint import validate_session_endpoint
+            validate_session_endpoint(session)
             if not isinstance(session.billing, dict):
                 raise ValueError("Session billing must be an object.")
             if session.billing:
