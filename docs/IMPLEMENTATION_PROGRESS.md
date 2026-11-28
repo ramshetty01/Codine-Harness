@@ -141,3 +141,12 @@ Details: [TRANSCRIPTS.md](TRANSCRIPTS.md),
 [OPENROUTER_STREAMING.md](OPENROUTER_STREAMING.md),
 [PROJECT_CHECKS.md](PROJECT_CHECKS.md), and [PLATFORMS.md](PLATFORMS.md).
 No inference was used for this development work.
+
+Final integration for this continuation passed **381 tests with Docker enabled and
+zero skips**. A rebuilt installed wheel passed console/module startup, resource,
+session-location and restart checks plus 12/12 offline exercises outside the
+checkout with network blocked. File lifecycle details and limitations are in
+[FILE_LIFECYCLE.md](FILE_LIFECYCLE.md). The previous hosted matrix run
+[46084628573](https://github.com/ramshetty01/Codine-Harness/actions/runs/46084628573)
+passed; this newer code receives its own hosted run after push. These are harness
+checks, not a live-model score.
