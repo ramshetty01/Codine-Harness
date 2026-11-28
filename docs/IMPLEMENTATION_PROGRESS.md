@@ -335,3 +335,47 @@ against [MILESTONE5_ACCEPTANCE.md](MILESTONE5_ACCEPTANCE.md). There are now **59
 issues out of 91**, and **three closed milestones out of eight**. M3 remains open
 for the combined long-task acceptance gate, not because its implementation issues
 are still open. Remaining work continues in separate isolated branches.
+
+## Forks, historical context, packages and SDK/RPC
+
+S5/S6 now provide `/fork`, a navigable `/tree`, and separately approved
+`/rewind-context` historical children. Parent archives and current files remain
+intact; children retain current spending and usage rather than restoring an old
+allowance. Historical children clear future summaries and plans. Shared receipts
+are checked under the existing ledger lock, including settled request ownership;
+uncertain or foreign receipts still block forking. Conversation rewind never
+claims to undo file, shell or network effects.
+
+X5 installs reviewed local extension directories with version/API/Python/exact
+installed-dependency compatibility checks. Native no-replace publication is tested
+on Linux and macOS. Staging and publication bytes are verified against reviewed
+receipts; changed bytes leave explicit pending recovery state. Removal retains
+backups and refuses loaded, modified or untracked contents. Installation itself
+does not grant executable trust. Archive/network installers and automatic pip
+execution are not part of this supported interface.
+
+X6 adds `codine.sdk.Client` and `codine --rpc`. The persistent local transport uses
+the same CLI/Agent, session journal, approvals and shared cost guard. Reverse
+approval tokens expire, cancellation works during active turns, frames/queues are
+bounded, and callback/transport failures request cancellation without replay.
+The default client launch isolates Python startup paths. Real process tests cover
+SDK → trusted MCP connection → approved tool invocation and shared-budget
+settlement/unknown-cost blocking. Installed-wheel checks exercise SDK session
+save/resume outside the source checkout. The existing one-shot `--json` transport
+remains intact.
+
+Integration `ad9a401` passed **735 Docker-enabled tests with zero skips**. The first
+hosted run exposed two PTY tests that captured history after streamed text but
+before its durable save. `a41ed37` fixes the observation boundary and deliberately
+delays fake-provider return to reproduce the race; all seven focused terminal
+checks passed. Final hosted run
+[46096901610](https://github.com/ramshetty01/Codine-Harness/actions/runs/46096901610)
+passed all nine jobs. Installed wheel checks and 12/12 offline exercises passed.
+These gates use scripted providers and local fixtures, not live inference.
+
+Issues S5, S6, X5 and X6 are closed: **63/91 issues** and **3/8 milestones** are
+closed. Current MCP mainline supports the documented legacy local stdio interface;
+reviewed modern-protocol support and deferred schema discovery are prepared in
+separate commits for the next integration gate. Retention review, controlled tool
+orchestration and provider compatibility work continue in parallel. No real
+repository cleanup or new API spending occurred.
