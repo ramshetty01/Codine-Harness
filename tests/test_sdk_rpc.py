@@ -22,6 +22,8 @@ import codine.paths, codine.router_catalog
 socket.create_connection=lambda *a,**k: (_ for _ in ()).throw(AssertionError('No network'))
 socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('No network'))
 codine.paths.STATE_ROOT=Path.cwd()/'.test-shared'
+import codine.mcp_settings
+codine.mcp_settings.MCP_ROOT=Path.cwd()/'.test-mcp'
 codine.router_catalog.metadata=lambda *a: {'limit_remaining':5}
 cli.Config.load=lambda project,provider=None,model=None:Config(Path(project).resolve(),provider=provider or 'nvidia',model=model or 'fake',api_key='fake-only-key')
 class Fake:
@@ -34,6 +36,9 @@ class Fake:
             if text=='slow':
                 while True:
                     emit('status','waiting');time.sleep(.03)
+            if text=='mcp echo':
+                name=next(row['function']['name'] for row in schemas if row['function']['name'].startswith('mcp_'))
+                return {'role':'assistant','content':None,'tool_calls':[{'id':'mcp-call','type':'function','function':{'name':name,'arguments':json.dumps({'text':'rpc-mcp-result'})}}]},'tool_calls',usage
             if text=='unknown cost':return {'role':'assistant','content':'uncertain'},'stop',None
             if text.startswith('write '):
                 args={'path':text.split(' ',1)[1],'content':'hello\n'}
@@ -122,3 +127,24 @@ class SDKRPCTests(unittest.TestCase):
             with self.subTest(method=method,params=str(params)[:40]):
                 with self.assertRaises(CodineError):client.request(method,params)
         self.assertEqual(client.run('still usable')['outcome']['outcome'],'completed')
+
+    def test_sdk_client_trusts_connects_and_calls_real_stdio_mcp_with_approval(self):
+        from tests.test_mcp import SERVER
+        server=self.project/'server.py';server.write_text(SERVER)
+        settings=self.project/'.test-mcp';settings.mkdir(mode=0o700)
+        config=settings/'servers.json'
+        config.write_text(json.dumps({'version':1,'servers':{'fixture':{
+            'transport':'stdio','argv':[str(Path(sys.executable).resolve()),'-I','-u',str(server)],
+            'cwd':str(self.project),'files':[str(server)],'credential_env':[]}}}))
+        config.chmod(0o600)
+        approvals=[];events=[]
+        client=self.client(on_event=events.append,approve=lambda text:approvals.append(text) or True)
+        with self.assertRaisesRegex(CodineError,'trust'):client.command('/mcp connect fixture')
+        client.command('/mcp trust fixture')
+        client.command('/mcp connect fixture')
+        result=client.run('mcp echo')
+        self.assertEqual(result['outcome']['outcome'],'completed')
+        self.assertGreaterEqual(len(approvals),2)
+        outputs=[str(row['data']) for row in events if row['event']=='tool_response']
+        self.assertTrue(any('rpc-mcp-result' in row for row in outputs))
+        client.command('/mcp disconnect fixture')

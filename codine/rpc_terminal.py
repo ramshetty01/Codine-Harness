@@ -16,7 +16,7 @@ from .terminal import safe_text
 
 FRAME_LIMIT = 65536
 APPROVAL_TIMEOUT = 60.0
-COMMANDS = frozenset('/help /status /settings /usage /budget /policy /sandbox /plan /instructions /jobs /cancel /tasks /context /compact /model /thinking /permissions /save /resume /new /clear /artifact /changes /changeset /diff /rewind /undo /git /memory /skills /skill /trust /extensions /ext'.split())
+COMMANDS = frozenset('/fork /tree /rewind-context /packages /mcp /help /status /settings /usage /budget /policy /sandbox /plan /instructions /jobs /cancel /tasks /context /compact /model /thinking /permissions /save /resume /new /clear /artifact /changes /changeset /diff /rewind /undo /git /memory /skills /skill /trust /extensions /ext'.split())
 
 
 def unique_object(pairs):

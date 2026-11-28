@@ -93,11 +93,22 @@ finally:
     manager.close()
 assert manager.list() == []
 """])
+        run([python, '-c', """
+from pathlib import Path
+from codine.sdk import Client
+with Client(Path.cwd(), provider='nvidia') as client:
+    session = client.ready['session']
+    assert client.status()['mode'] == 'ask'
+    client.command('/save')
+with Client(Path.cwd(), resume=session) as client:
+    assert client.ready['session'] == session
+    assert client.status()['mode'] == 'ask'
+"""])
         print(run([python, '-m', 'codine.evals', '--offline']).strip())
         report = json.loads((project / '.codine/evals/offline.json').read_text())
         assert report['passed'] == report['total'] == 12
         assert report['provenance']['source']['files']
-        print('Installed wheel: imports, resources, offline startup, session location, restart and local extension lifecycle passed; parent network blocked.')
+        print('Installed wheel: imports, resources, offline startup, session location, restart, local extension lifecycle and SDK/RPC resume passed; parent network blocked.')
 
 
 if __name__ == '__main__':
