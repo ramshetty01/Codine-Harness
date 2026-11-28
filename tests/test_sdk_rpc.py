@@ -31,14 +31,27 @@ class Fake:
     def close(self):pass
     def complete(self,messages,schemas,model,emit):
         usage=SimpleNamespace(cost=.01,prompt_tokens=10,completion_tokens=10,total_tokens=20)
+        task=next(row['content'] for row in reversed(messages) if row['role']=='user')
+        if task=='mcp echo':
+            if messages[-1]['role']=='user':
+                assert not any(row['function']['name'].startswith('mcp_') for row in schemas)
+                name,args,ident='discover_tools',{'query':'mcp_'},'mcp-discover'
+            elif messages[-1].get('tool_call_id')=='mcp-discover':
+                found=json.loads(messages[-1]['content'])['tools'][0]
+                assert 'parameters' not in found
+                name,args,ident='load_tool',{'name':found['name'],'version':found['version']},'mcp-load'
+            elif messages[-1].get('tool_call_id')=='mcp-load':
+                name=json.loads(messages[-1]['content'])['name']
+                assert any(row['function']['name']==name for row in schemas)
+                args,ident={'text':'rpc-mcp-result'},'mcp-call'
+            else:name=None
+            if name is not None:
+                return {'role':'assistant','content':None,'tool_calls':[{'id':ident,'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]},'tool_calls',usage
         if messages[-1]['role']=='user':
             text=messages[-1]['content']
             if text=='slow':
                 while True:
                     emit('status','waiting');time.sleep(.03)
-            if text=='mcp echo':
-                name=next(row['function']['name'] for row in schemas if row['function']['name'].startswith('mcp_'))
-                return {'role':'assistant','content':None,'tool_calls':[{'id':'mcp-call','type':'function','function':{'name':name,'arguments':json.dumps({'text':'rpc-mcp-result'})}}]},'tool_calls',usage
             if text=='unknown cost':return {'role':'assistant','content':'uncertain'},'stop',None
             if text.startswith('write '):
                 args={'path':text.split(' ',1)[1],'content':'hello\n'}
@@ -147,6 +160,10 @@ class SDKRPCTests(unittest.TestCase):
         self.assertGreaterEqual(len(approvals),2)
         outputs=[str(row['data']) for row in events if row['event']=='tool_response']
         self.assertTrue(any('rpc-mcp-result' in row for row in outputs))
+        names=[row['data']['function']['name'] for row in events if row['event']=='tool_request']
+        self.assertEqual(names[:2],['discover_tools','load_tool'])
+        self.assertTrue(names[2].startswith('mcp_'))
+        self.assertEqual(len(names),3)
         client.command('/mcp disconnect fixture')
 
     def test_callback_exception_cancels_turn_and_approval_reentrancy_denies(self):
