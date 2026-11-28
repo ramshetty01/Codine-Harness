@@ -80,3 +80,44 @@ class SupervisorTests(unittest.TestCase):
     def test_schema_rejects_unbounded_deadlines_or_unknown_roles(self):
         for value in ({'role':'anything'},{'role':'parent','runs':[{'id':'a'*32,'child':None,'status':'running','started':1,'deadline':4000}]}):
             with self.assertRaises(ValueError):validate(value)
+    def test_two_active_readers_keep_tasks_disjoint_and_serialize_accounting(self):
+        barrier=threading.Barrier(2);seen=[];active=0;maximum=0;guard=threading.Lock()
+        class ConcurrentReader(FakeWorker):
+            def run(self,task):
+                barrier.wait(timeout=3)
+                return super().run(task)
+        self.supervisor.worker_factory=ConcurrentReader
+        original=self.provider.complete.return_value
+        def provider(messages,schemas,model,emit):
+            nonlocal active,maximum
+            with guard:active+=1;maximum=max(maximum,active);seen.append(messages[0]['content'])
+            if len(seen)==1:self.assertEqual(sum(row['status']=='running' for row in self.session.delegation['runs']),2)
+            with guard:active-=1
+            return original
+        self.provider.complete.side_effect=provider
+        results=self.supervisor.run_many(['first isolated task','second isolated task'])
+        self.assertEqual(len(results),2);self.assertEqual(maximum,1)
+        self.assertEqual(set(seen),{'first isolated task','second isolated task'})
+        self.assertEqual(self.session.billing['spent'],'0.04');self.assertEqual(self.session.usage_details['requests'],2)
+        self.assertEqual(len({r['child'] for r in self.session.delegation['runs']}),2)
+    def test_unknown_first_charge_prevents_queued_sibling_dispatch(self):
+        barrier=threading.Barrier(2)
+        class ConcurrentReader(FakeWorker):
+            def run(self,task):barrier.wait(timeout=3);return super().run(task)
+        self.supervisor.worker_factory=ConcurrentReader
+        self.provider.complete.return_value=({'role':'assistant','content':'done'},'stop',SimpleNamespace(prompt_tokens=1))
+        with self.assertRaises((BudgetError,KeyboardInterrupt)):self.supervisor.run_many(['one','two'])
+        self.assertEqual(self.provider.complete.call_count,1)
+        self.assertIsNotNone(self.session.billing['pending'])
+        self.assertFalse(self.agent._child_supervision_active)
+    def test_shared_cancel_reaches_two_active_readers_without_dispatch(self):
+        barrier=threading.Barrier(2)
+        owner=self.supervisor
+        class ConcurrentReader(FakeWorker):
+            def run(self,task):
+                barrier.wait(timeout=3);owner.cancel()
+                return super().run(task)
+        self.supervisor.worker_factory=ConcurrentReader
+        with self.assertRaises(KeyboardInterrupt):self.supervisor.run_many(['one','two'])
+        self.provider.complete.assert_not_called()
+        self.assertTrue(all(r['status']=='cancelled' for r in self.session.delegation['runs']))

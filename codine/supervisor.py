@@ -1,5 +1,7 @@
 """Serial read-only child supervision with parent-owned accounting and durable links."""
 import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 import math
 import re
 import threading
@@ -43,19 +45,23 @@ class AccountedCompletion:
         self.model=supervisor.agent.session.model
         self.max_output_tokens=supervisor.agent.config.request_limits(self.model)[1]
     @property
-    def billing_snapshot(self):return copy.deepcopy(self.supervisor.agent.session.billing)
+    def billing_snapshot(self):
+        with self.supervisor.lock:return copy.deepcopy(self.supervisor.agent.session.billing)
     def __call__(self,messages,schemas,emit):
-        owner=self.supervisor;owner.check()
-        if owner.agent.session.id!=self.parent_id or owner.agent.session.model!=self.model or self.run['status']!='running' or not self.run['child']:raise ValueError('Supervision identity changed; no child request sent.')
-        ledger=Budget(owner.agent.session.billing) if owner.agent.session.provider=='openrouter' else None
-        def checked(kind,data):owner.check();emit(kind,data)
-        # Exactly one parent-owned local/shared reservation and usage record.
-        return owner.agent.complete(messages,schemas,ledger,emit=checked)
+        owner=self.supervisor
+        with owner.lock:
+            owner.check()
+            if owner.agent.session.id!=self.parent_id or owner.agent.session.model!=self.model or self.run['status']!='running' or not self.run['child']:raise ValueError('Supervision identity changed; no child request sent.')
+            ledger=Budget(owner.agent.session.billing) if owner.agent.session.provider=='openrouter' else None
+            def checked(kind,data):owner.check();emit(kind,data)
+            # Exactly one parent-owned local/shared reservation and usage record.
+            return owner.agent.complete(messages,schemas,ledger,emit=checked)
 
 
 class Supervisor:
     def __init__(self,agent,workspace,*,worker_factory=None,cancel_event=None,clock=time.time):
         self.agent,self.workspace=agent,workspace
+        self.lock=agent.__dict__.setdefault("_child_supervision_lock",threading.RLock())
         self.worker_factory=worker_factory
         self.cancel_event=cancel_event or threading.Event()
         self.clock=clock;self.worker=None;self.running=False;self.expired=False;self.deadline=None
@@ -69,38 +75,73 @@ class Supervisor:
         if self.running:
             try:self.agent.provider.close()
             except Exception:pass
-    def run(self,task,*,limits=None):
+    def _preflight(self):
         from .session_forks import require_idle,settled_shared_budget
-        if self.running:raise ValueError('Only one serial supervised child may run.')
         require_resolved(self.agent.session);require_idle(self.agent,self.workspace)
-        if self.agent.session.delegation.get('role')=='child':raise ValueError('Recursive child delegation is disabled.')
-        from .subagents import ReadOnlyWorker,WorkerLimits
-        limits=limits or WorkerLimits(max_output_tokens=self.agent.config.request_limits(self.agent.session.model)[1])
-        if self.agent.config.request_limits(self.agent.session.model)[1]>limits.max_output_tokens:raise ValueError('Parent output cap exceeds the worker cap; configure it before delegation.')
-        if self.agent.session.provider=='openrouter':
-            if getattr(self.agent,'shared_budget_path',None) is None:raise BudgetError('Supervised OpenRouter workers require the parent shared accounting guard.')
+        if self.agent.session.delegation.get("role")=="child":raise ValueError("Recursive child delegation is disabled.")
+        if self.agent.session.provider=="openrouter":
+            if getattr(self.agent,"shared_budget_path",None) is None:raise BudgetError("Supervised OpenRouter workers require the parent shared accounting guard.")
             if not self.agent.session.billing:self.agent.session.billing=Budget.create(self.agent.config.budget_usd,self.agent.config.request_budget_usd).state
         with settled_shared_budget(self.agent):pass
         self.check()
-        state=self.agent.session.delegation or {'role':'parent','runs':[]}
-        if len(state['runs'])>=16:raise ValueError('This parent reached its 16-child durable history limit.')
-        started=self.clock();self.deadline=started+limits.max_seconds
-        row={'id':uuid.uuid4().hex,'child':None,'status':'starting','started':started,'deadline':self.deadline}
-        state['runs'].append(row);self.agent.session.delegation=state;self.agent.save()
+
+    def run(self,task,*,limits=None):
+        return self.run_many([task],limits=limits)[0]
+
+    def run_many(self,tasks,*,limits=None):
+        if not isinstance(tasks,list) or not 1<=len(tasks)<=2:raise ValueError("Supply one or two explicit disjoint child tasks.")
+        with self.lock:
+            if getattr(self.agent,"_child_supervision_active",False):raise ValueError("This parent already has active supervised workers.")
+            self._preflight()
+            if len(self.agent.session.delegation.get("runs",[]))+len(tasks)>16:raise ValueError("Parent child history limit reached.")
+            self.agent._child_supervision_active=True;self.running=True
+        children=[]
+        try:
+            if len(tasks)==1:return [self._run(tasks[0],limits=limits)]
+            children=[Supervisor(self.agent,self.workspace,worker_factory=self.worker_factory,cancel_event=self.cancel_event,clock=self.clock) for _ in tasks]
+            with ThreadPoolExecutor(max_workers=2,thread_name_prefix="codine-reader") as pool:
+                futures={pool.submit(child._run,task,limits=limits):index for index,(child,task) in enumerate(zip(children,tasks))}
+                results=[None]*len(tasks)
+                try:
+                    for future in as_completed(futures):results[futures[future]]=future.result()
+                except BaseException:
+                    self.cancel()
+                    for child in children:child.cancel()
+                    raise
+            return results
+        finally:
+            with self.lock:self.agent._child_supervision_active=False;self.running=False
+
+    def _run(self,task,*,limits=None):
+        from .subagents import ReadOnlyWorker,WorkerLimits
+        limits=limits or WorkerLimits(max_output_tokens=self.agent.config.request_limits(self.agent.session.model)[1])
+        if self.agent.config.request_limits(self.agent.session.model)[1]>limits.max_output_tokens:raise ValueError('Parent output cap exceeds the worker cap; configure it before delegation.')
+        self.check()
+        with self.lock:
+            state=self.agent.session.delegation or {'role':'parent','runs':[]}
+            if len(state['runs'])>=16:raise ValueError('This parent reached its 16-child durable history limit.')
+            started=self.clock();self.deadline=started+limits.max_seconds
+            row={'id':uuid.uuid4().hex,'child':None,'status':'starting','started':started,'deadline':self.deadline}
+            state['runs'].append(row);self.agent.session.delegation=state;self.agent.save()
         store=SessionStore(self.workspace.root,self.agent.redactor)
         timer=None;self.running=True
         try:
-            self.worker=(self.worker_factory or ReadOnlyWorker)(self.workspace,self.agent.config,store,
+            self.worker=(self.worker_factory or ReadOnlyWorker)(self.workspace,replace(self.agent.config,model=self.agent.session.model),store,
                 complete=AccountedCompletion(self,row),redactor=self.agent.redactor,cancel_event=self.cancel_event,
                 limits=limits,parent_link={'role':'child','parent':self.agent.session.id,'run':row['id']})
-            row['child']=self.worker.session.id;row['status']='running';self.agent.save()
+            with self.lock:
+                row['child']=self.worker.session.id;row['status']='running';self.agent.save()
             def expired():self.expired=True;self.cancel()
             timer=threading.Timer(limits.max_seconds,expired);timer.daemon=True;timer.start()
             self.check();result=self.worker.run(task);self.check()
-            row['status']='completed';self.agent.save();return result
+            with self.lock:row['status']='completed';self.agent.save()
+            return result
         except BaseException as error:
-            row['status']='timed_out' if self.expired else 'cancelled' if isinstance(error,KeyboardInterrupt) else 'failed'
-            self.agent.save();raise
+            if isinstance(error,KeyboardInterrupt):self.cancel()
+            with self.lock:
+                row['status']='timed_out' if self.expired else 'cancelled' if isinstance(error,KeyboardInterrupt) else 'failed'
+                self.agent.save()
+            raise
         finally:
             if timer:timer.cancel()
             if self.worker:self.worker.close()
