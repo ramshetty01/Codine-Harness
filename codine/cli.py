@@ -37,6 +37,7 @@ HELP = '''Commands
   /instructions         Show loaded root project guidance
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
+  /editor               Edit an unsent draft in your configured external editor
   /paste                Read multiple lines until /end (fallback for paste)
   /session              Current session details
   /sessions [query]     Search and select saved sessions
@@ -66,7 +67,7 @@ HELP = '''Commands
   /permissions MODE     ask or auto-edit; commands use /policy, core edits ask
   exit, /quit           Save and quit
 Use @path or @"path with spaces" to attach a bounded text snapshot. @@ escapes a literal @.
-Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
+Default keys: Enter sends. Alt+Enter adds a line. Ctrl+R searches history; Ctrl+X Ctrl+E edits the draft. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
        run_command, request_restart, update_plan, read_artifact.
 Use /sandbox to inspect command isolation. File tools operate in the host workspace.
@@ -190,6 +191,12 @@ def command(text, agent, workspace, ui):
             ui.write('Undone ' + result['path'])
         else:
             ui.write(result.get('message', result['status'].capitalize()))
+    elif name == '/editor':
+        if argument:
+            raise ValueError('Usage: /editor (configure editor_argv in user input settings)')
+        if not hasattr(ui, 'external_editor'):
+            raise ValueError('External editor requires an interactive terminal.')
+        ui.external_editor()
     elif name == '/tools':
         from .historyview import list_command
         list_command(argument, agent, ui)
@@ -409,6 +416,8 @@ def main(argv=None):
         config = Config.load(args.project, provider=args.provider, model=args.model)
         redactor = Redactor.environment()
         ui.redactor = redactor
+        if hasattr(ui, 'configure_input'):
+            ui.configure_input(config.project)
         store = SessionStore(config.project, redactor)
         resume = args.resume
         if args.continue_session:

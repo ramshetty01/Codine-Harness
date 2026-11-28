@@ -19,6 +19,7 @@ COMMANDS = {
     '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',
     '/drop': 'Remove a queued item', '/next': 'Run the next queued item', '/stop': 'Cancel the busy turn',
     '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
+    '/editor': 'Open draft in configured external editor',
     '/export': 'Review and export a redacted transcript', '/import': 'Review and import historical conversation',
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/usage': 'Reported input/output/cache/reasoning usage',
@@ -124,20 +125,58 @@ class Terminal:
         self.submitted_commands = Queue(maxsize=16)
         self.editor = None
         self.completer = CommandCompleter()
+        self._editor_requested = False
+        self.input_preferences = None
+        self.prompt_history = None
         if self.interactive:
-            bindings = KeyBindings()
-            @bindings.add('enter')
-            def submit(event):
-                event.current_buffer.validate_and_handle()
-            @bindings.add('escape', 'enter')
-            def newline(event):
-                event.current_buffer.insert_text('\n')
-            self.editor = PromptSession(multiline=True, key_bindings=bindings,
-                prompt_continuation=FormattedText([('class:border', '  · ')]),
-                bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
-                color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
-                completer=self.completer, complete_while_typing=True,
-                reserve_space_for_menu=4, enable_history_search=False)
+            self._configure_editor()
+
+    def _configure_editor(self, settings=None, history=None):
+        from .input_settings import DEFAULT_KEYS
+        from prompt_toolkit.filters import is_searching
+        from prompt_toolkit.key_binding.bindings.search import start_reverse_incremental_search
+        keys = settings['keys'] if settings else DEFAULT_KEYS
+        bindings = KeyBindings()
+        @bindings.add(*keys['submit'], filter=~is_searching)
+        def submit(event):
+            event.current_buffer.validate_and_handle()
+        @bindings.add(*keys['newline'], filter=~is_searching)
+        def newline(event):
+            event.current_buffer.insert_text('\n')
+        bindings.add(*keys['history_search'], filter=~is_searching)(start_reverse_incremental_search)
+        @bindings.add(*keys['editor'], filter=~is_searching)
+        def edit_draft(event):
+            self.draft = event.current_buffer.text
+            self._editor_requested = True
+            event.app.exit(result='/editor')
+        self.editor = PromptSession(multiline=True, key_bindings=bindings, history=history,
+            prompt_continuation=FormattedText([('class:border', '  · ')]),
+            bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
+            color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
+            completer=self.completer, complete_while_typing=True,
+            reserve_space_for_menu=4, enable_history_search=False, refresh_interval=.25)
+
+    def configure_input(self, project):
+        if not self.interactive:
+            return
+        from .input_settings import preferences, PrivateHistory, HISTORY_PATH, outside_project
+        settings = preferences(project)
+        outside_project(HISTORY_PATH, project)
+        from prompt_toolkit.history import DummyHistory
+        history = PrivateHistory(HISTORY_PATH, lambda: self.redactor) if settings['history'] else DummyHistory()
+        self.input_preferences = settings
+        self.prompt_history = history if settings['history'] else None
+        self._configure_editor(settings, history)
+
+    def external_editor(self):
+        if not self.interactive or self.busy_reader is not None:
+            raise ValueError('External editor requires an idle interactive terminal.')
+        from .input_settings import edit_text
+        settings = self.input_preferences or {}
+        self._editor_requested = False
+        self.draft = edit_text(self.draft, settings.get('editor_argv'), redactor=self.redactor,
+                               terminal_fd=sys.stdin.fileno())
+        self.write('Editor text returned as an unsent draft. Review it, then submit when ready.')
 
     @property
     def width(self):
@@ -189,7 +228,10 @@ class Terminal:
         self.line('    ' + str(project), 'muted')
         self.line('    ' + model, 'muted')
         self.line()
-        self.line('  / commands   ·   Alt+Enter newline   ·   Ctrl+D exit', 'muted')
+        self.line('  / commands   ·   /editor draft   ·   Ctrl+D exit', 'muted')
+        if self.input_preferences:
+            keys = self.input_preferences['keys']
+            self.line('  Keys: ' + ' · '.join(action + '=' + ' '.join(sequence) for action, sequence in keys.items()), 'muted')
 
     def toolbar(self):
         from .status_view import lines
@@ -222,13 +264,18 @@ class Terminal:
             return submitted
         if not self.editor:
             raise EOFError()
+        if self.prompt_history and self.prompt_history.failure:
+            self.write(self.prompt_history.failure)
         self.line()
         try:
             text = self.editor.prompt(FormattedText([('class:prompt', '› ')]), default=self.draft)
         except KeyboardInterrupt:
             self.draft = self.editor.default_buffer.text
             raise
-        self.draft = ''
+        if not self._editor_requested:
+            self.draft = ''
+        if self.prompt_history and self.prompt_history.failure:
+            self.write(self.prompt_history.failure)
         return text
 
     def paste(self):

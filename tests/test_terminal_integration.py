@@ -22,6 +22,8 @@ class PTY:
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 35, columns, 0, 0))
         settings = dict(os.environ, TERM=os.getenv('CODINE_TEST_TERM', 'xterm-256color'), PROMPT_TOOLKIT_NO_CPR='1', PYTHONPATH=str(APP_ROOT))
+        self.user_home = tempfile.TemporaryDirectory(prefix='codine-test-home-')
+        settings['HOME'] = str(Path(self.user_home.name).resolve())
         settings.update(env or {})
         self.process = subprocess.Popen(argv, cwd=cwd, stdin=slave, stdout=slave, stderr=slave, env=settings, start_new_session=True)
         os.close(slave)
@@ -56,6 +58,7 @@ class PTY:
                 self.process.kill()
                 self.process.wait()
         os.close(self.master)
+        self.user_home.cleanup()
 
 
 class TerminalIntegrationTests(unittest.TestCase):
@@ -103,6 +106,9 @@ raise SystemExit(cli.main(['--provider','nvidia']))
                 self.assertFalse((Path(directory) / 'created.txt').exists())
                 snapshot = json.loads(next((Path(directory) / '.codine/sessions').glob('*.json')).read_text())
                 self.assertIn('[Terminal action]', snapshot['messages'][-1]['content'])
+                history = json.loads((Path(terminal.user_home.name) / '.local/state/codine/input-history.json').read_text())['entries']
+                self.assertNotIn('yes', history)
+                self.assertNotIn('no', history)
                 terminal.send(b'exit\r')
                 terminal.until(b'Goodbye!')
                 self.assertEqual(terminal.process.wait(timeout=5), 0)
@@ -178,6 +184,67 @@ raise SystemExit(cli.main(['--provider','nvidia']))
             finally:
                 release.touch()
                 terminal.close()
+
+    def test_persistent_history_search_and_external_editor_unsent_draft(self):
+        driver = r'''
+import json,os,fcntl,termios
+fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+from pathlib import Path
+from codine import cli
+class Fake:
+    def __init__(self, config): pass
+    def close(self): pass
+    def complete(self, messages, schemas, model, emit):
+        path = Path(os.environ['CAPTURE'])
+        calls = json.loads(path.read_text()) if path.exists() else []
+        calls.append(messages[-1]['content'])
+        path.write_text(json.dumps(calls))
+        emit('text','OFFLINE_COMPLETE')
+        return {'role':'assistant','content':'OFFLINE_COMPLETE'}, 'stop', None
+cli.NvidiaProvider = Fake
+raise SystemExit(cli.main(['--provider','nvidia']))
+'''
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as home:
+            root = Path(directory).resolve(); user = Path(home).resolve()
+            capture = root / 'calls.json'
+            editor = user / 'editor.py'
+            editor.write_text('from pathlib import Path\nimport sys,os\nassert os.tcgetpgrp(0) == os.getpgrp(), "editor must own foreground terminal"\np=Path(sys.argv[-1])\nPath(' + repr(str(user / 'editor-input.txt')) + ').write_text(p.read_text())\np.write_text("edited draft task")\n')
+            settings = user / '.config/codine/input.json'
+            settings.parent.mkdir(parents=True)
+            settings.write_text(json.dumps({'version': 1, 'editor_argv': [sys.executable, str(editor)]}))
+            settings.chmod(0o600)
+            environment = {'HOME': str(user), 'CAPTURE': str(capture)}
+            terminal = PTY([sys.executable, '-c', driver], root, environment)
+            try:
+                terminal.until('›'.encode())
+                terminal.send(b'persisted unique task\r')
+                terminal.until(b'OFFLINE_COMPLETE')
+                terminal.send(b'exit\r'); terminal.until(b'Goodbye!')
+                self.assertEqual(terminal.process.wait(timeout=5), 0)
+            finally:
+                terminal.close()
+            terminal = PTY([sys.executable, '-c', driver], root, environment)
+            try:
+                terminal.until('›'.encode())
+                terminal.send(b'\x12unique\r\r')
+                terminal.until(b'OFFLINE_COMPLETE')
+                self.assertEqual(json.loads(capture.read_text()), ['persisted unique task', 'persisted unique task'])
+                offset = len(terminal.output)
+                terminal.send(b'original unsent\x18\x05')
+                terminal.until(b'unsent draft', start=offset)
+                self.assertEqual(len(json.loads(capture.read_text())), 2)
+                self.assertEqual((user / 'editor-input.txt').read_text(), 'original unsent')
+                terminal.until(b'edited draft task', start=offset)
+                terminal.send(b'\r')
+                terminal.until(b'OFFLINE_COMPLETE', start=offset)
+                self.assertEqual(json.loads(capture.read_text())[-1], 'edited draft task')
+                terminal.send(b'exit\r'); terminal.until(b'Goodbye!')
+                self.assertEqual(terminal.process.wait(timeout=5), 0)
+            finally:
+                terminal.close()
+            history = user / '.local/state/codine/input-history.json'
+            self.assertEqual(history.stat().st_mode & 0o777, 0o600)
+            self.assertIn('edited draft task', history.read_text())
 
     def test_slash_menu_completion_in_narrow_terminal(self):
         with tempfile.TemporaryDirectory() as directory:

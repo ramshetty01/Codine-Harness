@@ -38,7 +38,9 @@ class Workspace:
         from .paths import STATE_ROOT
         from .capabilities import USER_CAPABILITIES
         self.protected_roots = {STATE_ROOT.resolve()}
-        self.protected_paths = {USER_CAPABILITIES.resolve()}
+        from .input_settings import INPUT_PATH, HISTORY_PATH
+        self.protected_paths = {USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
+                                HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
 
     def _file_decision(self, operation, target):
         policy = getattr(self, 'command_policy', None)
