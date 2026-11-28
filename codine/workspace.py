@@ -230,6 +230,10 @@ class Workspace:
             if grouped:
                 info = os.stat(temporary, follow_symlinks=False)
                 changesets.own(self, target.relative_to(self.root).as_posix(), [info.st_dev, info.st_ino])
+                # Journaling can block on disk: do not overwrite a version that
+                # changed while recording replacement ownership.
+                from .file_lifecycle import unchanged
+                unchanged(self, target.relative_to(self.root).as_posix(), current)
             os.replace(temporary, target)
             descriptor = os.open(target.parent, os.O_RDONLY)
             try:

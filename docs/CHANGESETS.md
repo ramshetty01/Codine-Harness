@@ -70,7 +70,9 @@ conflict and recover the appropriate individual checkpoint if necessary.
 This is a journaled sequence, **not an atomic multi-file filesystem transaction**.
 Another process may edit files during apply/rewind. Preflight catches existing
 conflicts before any mutation; per-path checks catch later conflicts and leave
-partial recovery state. Abrupt process/power loss in an unjournaled filesystem
+partial recovery state. Targets are rechecked after replacement-ownership journal
+writes as well; this closes the journal-save window but is not an atomic
+compare-and-swap against arbitrary concurrent writers. Abrupt process/power loss in an unjournaled filesystem
 window can leave ambiguous temporary/link state requiring manual inspection;
 Codine refuses uncertain overwrites. Empty created directories may remain.
 

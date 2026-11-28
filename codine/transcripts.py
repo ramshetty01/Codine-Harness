@@ -150,6 +150,7 @@ def command(kind, argument, agent, workspace, ui, system):
             agent.store.save(replacement)
             agent.session = replacement
             workspace.change_session_id = replacement.id
+            workspace.change_group_id = None
             workspace.read_versions.clear()
             workspace.read_ranges.clear()
             workspace.lifecycle_versions.clear()

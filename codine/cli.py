@@ -257,6 +257,7 @@ def command(text, agent, workspace, ui):
             agent.store.save(replacement)
         agent.session = replacement
         workspace.change_session_id = replacement.id
+        workspace.change_group_id = None
         workspace.read_versions.clear()
         workspace.read_ranges.clear()
         if hasattr(workspace, "project_checks"):
