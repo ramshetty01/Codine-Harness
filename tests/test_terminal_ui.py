@@ -11,6 +11,27 @@ from codine.terminal import CommandCompleter, Terminal
 
 
 class TerminalUITests(unittest.TestCase):
+    def test_short_stream_is_visible_with_long_known_secret(self):
+        terminal = Terminal(Redactor(['private-secret-' + 'x' * 80]), interactive=False)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            terminal.emit('text', 'FINAL_TEXT_READY')
+            self.assertIn('FINAL_TEXT_READY', out.getvalue())
+
+    def test_secret_split_at_each_boundary_stays_redacted(self):
+        secret = 'private-secret-value'
+        for split in range(1, len(secret)):
+            with self.subTest(split=split):
+                terminal = Terminal(Redactor([secret]), interactive=False)
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    terminal.emit('text', 'before ' + secret[:split])
+                    self.assertNotIn(secret[:split], out.getvalue().split('before ')[-1])
+                    terminal.emit('text', secret[split:] + ' after')
+                    terminal.emit('end_stream', '')
+                self.assertNotIn(secret, out.getvalue())
+                self.assertIn('after', out.getvalue())
+
     def test_completions_are_only_for_slash_commands(self):
         completer = CommandCompleter()
         matches = list(completer.get_completions(Document('/de'), None))

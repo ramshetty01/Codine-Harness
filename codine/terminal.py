@@ -341,7 +341,15 @@ class Terminal:
                              style=STYLE, end='', flush=True)
 
     def _flush(self, final=False):
-        keep = max(map(len, self.redactor.secrets), default=1) - 1
+        # Hold only a possible secret prefix at the chunk boundary. Holding the
+        # longest key's length unconditionally hides unrelated short responses.
+        keep = 0
+        if not final:
+            for secret in self.redactor.secrets:
+                for size in range(min(len(self.buffer), len(secret) - 1), keep, -1):
+                    if self.buffer.endswith(secret[:size]):
+                        keep = size
+                        break
         cut = len(self.buffer) if final else max(0, len(self.buffer) - keep)
         for secret in self.redactor.secrets:
             start = self.buffer.find(secret)
