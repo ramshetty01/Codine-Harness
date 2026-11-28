@@ -4,6 +4,7 @@ FIELDS = {
     'output': ('completion_tokens',),
     'total': ('total_tokens',),
     'cache_read': ('prompt_tokens_details', 'cached_tokens'),
+    'cache_write': ('prompt_tokens_details', 'cache_write_tokens'),
     'reasoning': ('completion_tokens_details', 'reasoning_tokens'),
 }
 
@@ -35,9 +36,13 @@ def validate(state):
     count = state['requests']
     if type(count) is not int or count < 1:
         raise ValueError('Invalid usage request count.')
+    legacy = set(FIELDS)-{'cache_write'}
+    expected = set(state['last']) if isinstance(state['last'],dict) else set()
+    if expected not in (set(FIELDS),legacy):
+        raise ValueError('Invalid detailed usage fields.')
     for section in ('last', 'totals', 'reported'):
         values = state[section]
-        if not isinstance(values, dict) or set(values) != set(FIELDS):
+        if not isinstance(values, dict) or set(values) != expected:
             raise ValueError('Invalid detailed usage fields.')
         for value in values.values():
             if section == 'last' and value is None:
@@ -52,9 +57,9 @@ def describe(state):
     count = state['requests']
     lines = [f'Provider usage · {count} completed responses tracked since detailed accounting began']
     for name in FIELDS:
-        last = state['last'][name]
-        coverage = state['reported'][name]
-        total = str(state['totals'][name]) if coverage else 'unknown'
+        last = state['last'].get(name)
+        coverage = state['reported'].get(name, 0)
+        total = str(state['totals'].get(name,0)) if coverage else 'unknown'
         lines.append(f'  {name}: last {last if last is not None else "unknown"}; reported sum {total} ({coverage}/{count} responses)')
     lines.append('Cache-read tokens are an input subset; reasoning tokens are an output subset. Do not add them again.')
     lines.append('Missing counts remain unknown. Interrupted or rejected responses are not inferred. /budget shows authoritative cost state.')

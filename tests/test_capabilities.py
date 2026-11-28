@@ -27,7 +27,7 @@ class CapabilitiesTests(unittest.TestCase):
         self.assertIsNone(plan.supported_parameters)
         self.assertIn('unknown locally',plan.note)
         self.assertEqual(plan.kwargs['tools'],TOOLS)
-        self.assertEqual(plan.kwargs['extra_body']['provider'],{'require_parameters':True})
+        self.assertEqual(plan.kwargs['extra_body']['provider'],{'require_parameters':True,'allow_fallbacks':False})
         self.assertNotIn('temperature',plan.kwargs)
         self.assertEqual(plan.omitted,('temperature',))
 

@@ -129,8 +129,10 @@ def require_idle(agent, workspace):
     validate_branch(session.branch, session)
 
 
-def fork(agent, workspace, title='', *, end=None, expected_state=None):
+def fork(agent, workspace, title='', *, end=None, expected_state=None, fresh_model=None):
     validate_title(title)
+    if fresh_model is not None and (expected_state is None or not isinstance(fresh_model,str) or not fresh_model or len(fresh_model)>200 or any(c.isspace() or not c.isprintable() for c in fresh_model)):
+        raise ValueError('Fresh model fork requires a reviewed model and state.')
     from .inbox import Inbox
     inbox = getattr(agent, 'inbox', None)
     if inbox is None or inbox.path != agent.store.path(agent.session.id).with_suffix('.inbox'):
@@ -169,6 +171,14 @@ def fork(agent, workspace, title='', *, end=None, expected_state=None):
             child.branch = {'version': 1, 'project': parent.project, 'parent': parent.id,
                 'root': parent.branch.get('root', parent.id), 'depth': depth,
                 'messages': len(child.messages), 'history_sha256': history_hash(child.messages)}
+            if fresh_model is not None:
+                child.model = fresh_model
+                child.context_start = len(child.messages)
+                child.context_summary = {}
+                child.summary_end = 1
+                child.summary_user = None
+                child.plan = []
+                child.plan_revision = parent.plan_revision + 1
             child.pending = None
             child.last_run = {}
             child.git_baseline = {}

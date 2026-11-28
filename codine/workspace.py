@@ -39,6 +39,7 @@ class Workspace:
         self.track_changes = track_changes
         from .paths import STATE_ROOT
         from .capabilities import USER_CAPABILITIES
+        from .fallback import USER_FALLBACKS
         from .prompt_templates import USER_TEMPLATES
         from .skills import USER_SKILLS
         from .instructions import USER_INSTRUCTIONS
@@ -47,7 +48,7 @@ class Workspace:
         from .credentials import AUTH_ROOT
         self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), USER_SKILLS.resolve(), TRUST_ROOT.resolve(), MCP_ROOT.resolve(), AUTH_ROOT.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
-        self.protected_paths = {USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
+        self.protected_paths = {USER_FALLBACKS.resolve(), USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
 
     def _file_decision(self, operation, target):

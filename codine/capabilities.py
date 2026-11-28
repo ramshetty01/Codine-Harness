@@ -137,7 +137,7 @@ def plan_request(config, model, schemas, *, record=None, declared=None, provider
         limit = top.get('max_completion_tokens') if isinstance(top, dict) else None
     if type(limit) is int and limit > 0:
         output = min(output, limit)
-    routing = {'require_parameters': True}
+    routing = {'require_parameters': True, 'allow_fallbacks': False}
     if config.router_max_price:
         routing['max_price'] = dict(config.router_max_price)
     if endpoint:

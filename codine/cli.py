@@ -35,6 +35,8 @@ HELP = '''Commands
   /sandbox              Inspect effective command isolation and image
   /policy               Show user command rules and last explained decision
   /instructions [PATH]  Inspect global/root and scoped file guidance
+  /cache                Show reported cache-read/write coverage
+  /fallback list|review MODEL|confirm DIGEST  Explicit fresh-context model alternative
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /packages             Review, install or remove local extension packages
@@ -169,6 +171,9 @@ def command(text, agent, workspace, ui):
     elif name == '/settings':
         from .settings import describe
         ui.write(describe(agent.config, session.model))
+    elif name == '/cache':
+        from .cache_metrics import describe
+        ui.write(describe(session.usage_details))
     elif name == '/usage':
         from .usage import describe
         ui.write(describe(session.usage_details))
@@ -304,8 +309,12 @@ def command(text, agent, workspace, ui):
         if argument:
             return command('/resume ' + argument, agent, workspace, ui)
         ui.write(format_tree(tree(agent.store, session.id)))
-    elif name in ('/resume', '/new', '/fork', '/rewind-context'):
-        if name == '/rewind-context':
+    elif name in ('/resume', '/new', '/fork', '/rewind-context', '/fallback'):
+        if name == '/fallback':
+            from .fallback import command as fallback_command
+            replacement = fallback_command(argument,agent,workspace,ui)
+            if replacement is None:return
+        elif name == '/rewind-context':
             from .conversation_rewind import rewind as rewind_conversation
             replacement = rewind_conversation(argument, agent, workspace, ui)
             if replacement is None:
@@ -415,6 +424,8 @@ def command(text, agent, workspace, ui):
         if argument:
             if any(char.isspace() or not char.isprintable() for char in argument) or len(argument) > 200:
                 raise ValueError('Provide one model ID.')
+            from .fallback import guard_switch
+            if argument != session.model:guard_switch(agent,workspace)
             session.model = argument
             agent.save()
         ui.write(f'{agent.config.provider.upper()}: {session.model}\nManual IDs are not validated by catalog availability. Model must support the selected provider and tools; unknown pricing is not free. There is no automatic provider/model fallback.')
