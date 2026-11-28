@@ -7,7 +7,7 @@ custom-command hooks. There are two explicit scopes:
   permissions and Git ignore rules. Its contents are untrusted project data.
 - User: `~/.config/codine/prompts/NAME.json`, private mode 0600, outside the project.
   This location is captured from the user's home and cannot be selected by
-  project settings. Model file tools cannot read or edit this user template root.
+  project settings. Model file tools cannot read or edit this user template root. Protection also reserves case and Unicode-normalization variants before the directory exists, including in a broad HOME workspace; similarly named sibling directories are not treated as this root.
 
 For example, create `.codine-prompts/review.json`:
 

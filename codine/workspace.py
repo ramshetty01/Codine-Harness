@@ -80,8 +80,14 @@ class Workspace:
             protected_name = unicodedata.normalize('NFC', str(protected.resolve())).casefold()
             if current_name == protected_name or (current.exists() and protected.exists() and current.samefile(protected)):
                 raise ValueError('User policy/configuration is protected from model file tools; edit it outside Codine.')
-        if any(current.resolve().is_relative_to(root) for root in self.protected_roots):
-            raise ValueError('Managed application state is protected from model file tools.')
+        # Reserve root aliases before directories exist too. Component matching
+        # avoids both case/normalization bypasses and false matches on siblings
+        # such as prompts-backup. This is conservative on case-sensitive hosts.
+        current_parts = tuple(unicodedata.normalize('NFC', part).casefold() for part in current.resolve().parts)
+        for root in self.protected_roots:
+            root_parts = tuple(unicodedata.normalize('NFC', part).casefold() for part in root.resolve().parts)
+            if current_parts[:len(root_parts)] == root_parts:
+                raise ValueError('Managed application state is protected from model file tools.')
         if not current.resolve().is_relative_to(self.root):
             raise ValueError("Path escapes the project.")
         if not directory and current.is_dir():
