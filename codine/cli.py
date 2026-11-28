@@ -61,6 +61,7 @@ HELP = '''Commands
   /thinking             Toggle display of reasoning (generation unchanged)
   /permissions MODE     ask or auto-edit; commands use /policy, core edits ask
   exit, /quit           Save and quit
+Use @path or @"path with spaces" to attach a bounded text snapshot. @@ escapes a literal @.
 Enter sends. Alt+Enter adds a line. Bracketed paste stays one prompt.
 Tools: list_files, read_file, search, write_file, edit_file, replace_lines, check_python,
        run_command, request_restart, update_plan, read_artifact.
@@ -435,6 +436,11 @@ def main(argv=None):
         if config.provider == 'openrouter':
             from .paths import STATE_ROOT
             agent.configure_shared_budget(STATE_ROOT / 'evals' / 'budget.json')
+        from .attachments import Attachments
+        agent.attachments = Attachments(workspace, redactor, ui.write)
+        agent.prepare_input = agent.attachments.prepare
+        if getattr(ui, 'completer', None):
+            ui.completer.attachment_paths = agent.attachments.paths
         agent.jobs = jobs
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None

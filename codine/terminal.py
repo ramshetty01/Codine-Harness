@@ -76,8 +76,17 @@ def clip(text, width):
 
 
 class CommandCompleter(Completer):
+    attachment_paths = None
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
+        if self.attachment_paths:
+            from .attachments import complete_attachment
+            token, names = complete_attachment(text, self.attachment_paths)
+            if token is not None:
+                for name in names:
+                    yield Completion('@' + (json.dumps(name, ensure_ascii=False) if any(c.isspace() or c in '"\\' for c in name) else name),
+                                     start_position=-len(token), display=name, display_meta='Attach file snapshot')
+                return
         if not text.startswith('/') or any(char.isspace() for char in text):
             return
         for command, hint in COMMANDS.items():
@@ -105,6 +114,7 @@ class Terminal:
         self.busy_reader = None
         self.submitted_commands = Queue(maxsize=16)
         self.editor = None
+        self.completer = CommandCompleter()
         if self.interactive:
             bindings = KeyBindings()
             @bindings.add('enter')
@@ -117,7 +127,7 @@ class Terminal:
                 prompt_continuation=FormattedText([('class:border', '  · ')]),
                 bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
                 color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
-                completer=CommandCompleter(), complete_while_typing=True,
+                completer=self.completer, complete_while_typing=True,
                 reserve_space_for_menu=4, enable_history_search=False)
 
     @property

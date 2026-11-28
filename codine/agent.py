@@ -76,6 +76,8 @@ class Agent:
 
     def deliver_queued(self, item):
         """Commit the message and receipt together before acknowledging the sidecar."""
+        prepare_input = getattr(self, 'prepare_input', None)
+        prepared_text = prepare_input(item['text']) if callable(prepare_input) else item['text']
         with self.inbox.lock:
             if item['id'] in self.session.queue_receipts:
                 self.inbox.reconcile(self.session.queue_receipts)
@@ -83,7 +85,7 @@ class Agent:
             if not any(row['id'] == item['id'] for row in self.inbox.list()):
                 return False  # Removed from the queue before delivery began.
             previous_receipts = self.session.queue_receipts
-            self.session.messages.append({'role': 'user', 'content': self.redactor.text(item['text'])})
+            self.session.messages.append({'role': 'user', 'content': self.redactor.text(prepared_text)})
             self.session.queue_receipts = (previous_receipts + [item['id']])[-128:]
             try:
                 self.save()
@@ -251,6 +253,9 @@ class Agent:
             if not self.deliver_queued(queued_item):
                 raise ValueError('Queued input was removed or already delivered; no request sent.')
         else:
+            prepare_input = getattr(self, 'prepare_input', None)
+            if callable(prepare_input):
+                text = prepare_input(text)
             self.session.messages.append({'role': 'user', 'content': self.redactor.text(text)})
             self.save()
         for step in range(self.config.max_steps):
