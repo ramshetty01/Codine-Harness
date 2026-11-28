@@ -109,6 +109,10 @@ class Agent:
         return True
 
     def run_turn(self, text, *, queued_item=None):
+        from .supervisor import require_resolved
+        require_resolved(self.session)
+        if self.session.delegation.get('role') == 'child' and not getattr(self, '_supervised_worker', False):
+            raise ValueError('Child sessions are archival; execute only through their parent supervisor.')
         self._in_turn = True
         self._save_failed = False
         self._terminal_emitted = False

@@ -108,6 +108,8 @@ def settled_shared_budget(agent):
 
 
 def require_idle(agent, workspace):
+    from .supervisor import require_resolved
+    require_resolved(agent.session)
     session = agent.session
     if session.provider != agent.config.provider:
         raise ValueError('Session/provider mismatch; select the correct provider before forking.')

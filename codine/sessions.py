@@ -79,6 +79,7 @@ class Session:
     last_run: dict = field(default_factory=dict)
     git_baseline: dict = field(default_factory=dict)
     migration: dict = field(default_factory=dict)
+    delegation: dict = field(default_factory=dict)
     branch: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
@@ -181,6 +182,8 @@ class SessionStore:
     def _save_storage(self, session):
         from .usage import validate as validate_usage
         validate_usage(session.usage_details)
+        from .supervisor import validate as validate_delegation
+        validate_delegation(session.delegation)
         from .custom_endpoint import validate_session_endpoint
         validate_session_endpoint(session)
         from .task_plan import validate_plan
@@ -225,7 +228,10 @@ class SessionStore:
         # Lock BEFORE reading, so a concurrent writer cannot make our snapshot stale.
         handle = self._open_lock(ident) if self.active != ident else None
         try:
-            session = self._read_session(ident)
+            session = self._read_session(ident, repair_pending=False)
+            if session.delegation.get('role') == 'child':
+                raise ValueError('Child sessions are archival and cannot resume independently; use the parent supervisor.')
+            session.repair_pending()
         except BaseException:
             if handle:
                 handle.close()
@@ -297,6 +303,8 @@ class SessionStore:
                 raise ValueError("Invalid usage counters.")
             from .usage import validate as validate_usage
             validate_usage(session.usage_details)
+            from .supervisor import validate as validate_delegation
+            validate_delegation(session.delegation)
             if repair_pending:
                 session.repair_pending()
         except (TypeError, KeyError, AttributeError, json.JSONDecodeError) as error:
