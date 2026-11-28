@@ -70,7 +70,8 @@ class AuthTests(unittest.TestCase):
         request = lambda t=target, host=callback.host: f'GET {t} HTTP/1.1\r\nHost: {host}\r\n\r\n'.encode()
         self.assertEqual(callback.parse(request()), 'auth-code-test')
         for raw in (request(host='evil.example'), request(t=target+'&state=duplicate'),
-                    request(t=target.replace(callback.state, 'wrong')), request(t='/wrong?'+target.split('?')[1]),
+                    request(t=target.replace(callback.state, 'wrong')),
+                    request(t=target.replace(callback.state, '%C3%A9')), request(t='/wrong?'+target.split('?')[1]),
                     request(t='http://evil.example'+target), request().replace(b'GET',b'POST'),
                     request().replace(b'\r\n\r\n', b'\r\nHost: evil\r\n\r\n'), request()+b'body'):
             self.assertIsNone(callback.parse(raw))
@@ -82,6 +83,10 @@ class AuthTests(unittest.TestCase):
             callback = urlsplit(query['callback_url'][0])
             target = callback.path + '?' + urlencode({'state':query['state'][0], 'code':'one-time-code'})
             def respond():
+                bad_target=callback.path+'?'+urlencode({'state':'é','code':'one-time-code'})
+                with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
+                    connection.sendall(f'GET {bad_target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
+                    observed['bad_response']=connection.recv(4096)
                 with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
                     connection.sendall(f'GET {target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
                     observed['response'] = connection.recv(4096)
@@ -96,6 +101,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(observed['code_challenge_method'], ['S256'])
         self.assertNotIn(b'one-time-code', observed['response'])
         self.assertIn(b'no-store', observed['response'])
+        self.assertIn(b'400 Bad Request',observed['bad_response'])
 
     def test_timeout_and_cancel_never_exchange(self):
         fake = Mock()

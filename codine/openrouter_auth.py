@@ -74,7 +74,8 @@ class Callback:
             if url.scheme or url.netloc or url.fragment or url.path != self.path: return None
             query = parse_qs(url.query, keep_blank_values=True, strict_parsing=True, max_num_fields=6)
             if set(query) != {'code', 'state'} or any(len(v) != 1 for v in query.values()): return None
-            if not hmac.compare_digest(query['state'][0], self.state): return None
+            state = query['state'][0]
+            if not state.isascii() or not hmac.compare_digest(state, self.state): return None
             code = query['code'][0]
             if not 1 <= len(code) <= 2048 or any(ord(c) < 33 or ord(c) > 126 for c in code): return None
             return code
