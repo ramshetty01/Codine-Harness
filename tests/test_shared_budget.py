@@ -200,3 +200,20 @@ class SharedBudgetTests(unittest.TestCase):
             ident = shared.reserve(); shared.dispatched(ident); shared.settle(ident, '.01')
         with self.assertRaisesRegex(BudgetError, 'key changed'):
             SharedBudget(self.path, 'other-fake-key', owner='two')
+
+    def test_stop_during_metadata_lookup_releases_unsent_reservation(self):
+        from codine.inbox import Inbox
+        agent, local = self.agent()
+        agent.inbox = Inbox(agent.store, agent.session)
+        def metadata(*_):
+            agent.inbox.cancel.set()
+            return {'limit_remaining': 5}
+        agent.budget_metadata = metadata
+        with self.assertRaises(KeyboardInterrupt):
+            agent.complete(agent.session.messages, [], local)
+        agent.provider.complete.assert_not_called()
+        self.assertIsNone(local.state['pending'])
+        self.assertEqual(local.state['spent'], '0')
+        state = json.loads(self.path.read_text())
+        self.assertIsNone(state['pending'])
+        self.assertEqual(state['spent'], '0')

@@ -57,6 +57,9 @@ def complete_shared(agent, messages, schemas, local, emit, *, completion=None):
             threshold = max(money('1.55'), money('1.50') + money(agent.config.request_budget_usd))
             if remaining is None or money(remaining) < threshold:
                 raise BudgetError(f'Key must have at least ${threshold} remaining to preserve the $1.50 reserve. No inference sent.')
+            boundary = getattr(agent, 'queued_boundary', None)
+            if callable(boundary):
+                boundary()  # A stop during metadata lookup is still proven non-dispatch.
             shared.dispatched(ident)
         except BaseException:
             # This block precedes the only provider call. Zero here is proven

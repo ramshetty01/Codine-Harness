@@ -177,6 +177,7 @@ class Agent:
                 if isinstance(getattr(plan, 'note', None), str):
                     self.emit('status', plan.note)
             completion = lambda callback: self.provider.complete(messages, schemas, self.session.model, callback)
+        self.queued_boundary()
         self._phase = 'accounting'
         if ledger and getattr(self, 'shared_budget_path', None) is not None:
             from .interactive_budget import complete_shared
