@@ -104,17 +104,13 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(rewind(self.parent,rows[0]['id'])['status'],'rewound')
         self.assertEqual((self.root/'a.py').read_text(),'a=1\n')
 
-    def test_deleted_modes_and_busy_integration_are_explicit_failures(self):
-        tree=self.tree();(Path(tree['path'])/'a.py').unlink()
-        with self.assertRaisesRegex(ValueError,'Deleted'):self.manager.review(tree['id'])
+    def test_busy_integration_is_an_explicit_failure(self):
         tree=self.tree();self.edit(tree,'a.py','a=2\n');review=self.manager.review(tree['id'])
         (self.root/'.codine').mkdir(exist_ok=True)
         lock=self.root/'.codine'/'integration.lock';lock.touch(mode=0o600)
         with lock.open('r+') as handle:
             fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
             with self.assertRaisesRegex(ValueError,'Another integration'):self.manager.integrate(review['review'])
-        os.chmod(Path(tree['path'])/'a.py',0o700)
-        with self.assertRaisesRegex(ValueError,'mode'):self.manager.review(tree['id'])
 
     def test_review_cannot_follow_child_links_or_tampered_private_receipts(self):
         tree=self.tree();path=Path(tree['path'])/'a.py'
@@ -186,3 +182,59 @@ class IsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'metadata changed'):self.manager.cleanup(tree['id'])
         self.assertTrue(Path(tree['path']).exists());pointer.write_bytes(original)
         self.manager.cleanup(tree['id'])
+
+    def test_rename_delete_and_modes_integrate_as_one_reversible_group(self):
+        tree=self.tree();root=Path(tree['path'])
+        (root/'a.py').rename(root/'renamed.py');(root/'b.py').unlink();(root/'renamed.py').chmod(0o755)
+        review=self.manager.review(tree['id'],new_paths=['renamed.py'])
+        self.assertEqual(set(review['paths']),{'a.py','b.py','renamed.py'})
+        self.assertIn('absent',review['preview']);self.assertIn('0o755',review['preview'])
+        result=self.manager.integrate(review['review'])
+        self.assertFalse((self.root/'a.py').exists());self.assertFalse((self.root/'b.py').exists())
+        self.assertEqual((self.root/'renamed.py').read_text(),'a=1\n')
+        self.assertEqual((self.root/'renamed.py').stat().st_mode&0o777,0o755)
+        rewind(self.parent,result['changeset'])
+        self.assertFalse((self.root/'renamed.py').exists());self.assertEqual((self.root/'a.py').read_text(),'a=1\n')
+        self.assertEqual((self.root/'b.py').read_text(),'b=1\n')
+
+    def test_mode_only_change_is_previewed_and_rewind_restores_mode(self):
+        tree=self.tree();(Path(tree['path'])/'a.py').chmod(0o755)
+        review=self.manager.review(tree['id']);self.assertIn('0o755',review['preview'])
+        result=self.manager.integrate(review['review']);self.assertEqual((self.root/'a.py').stat().st_mode&0o777,0o755)
+        rewind(self.parent,result['changeset']);self.assertEqual((self.root/'a.py').stat().st_mode&0o777,0o644)
+
+    def test_rename_interruption_after_destination_keeps_recoverable_original(self):
+        tree=self.tree();root=Path(tree['path']);(root/'a.py').rename(root/'renamed.py')
+        review=self.manager.review(tree['id'],new_paths=['renamed.py'])
+        with patch('codine.changesets.remove_guarded',side_effect=OSError('simulated removal failure')):
+            with self.assertRaises(OSError):self.manager.integrate(review['review'])
+        self.assertTrue((self.root/'a.py').exists());self.assertTrue((self.root/'renamed.py').exists())
+        record=ChangesetStore(self.root).list()[0]
+        rewind(self.parent,record['id'])
+        self.assertTrue((self.root/'a.py').exists());self.assertFalse((self.root/'renamed.py').exists())
+
+    def test_deleted_source_conflict_blocks_rename_destination(self):
+        tree=self.tree();root=Path(tree['path']);(root/'a.py').rename(root/'renamed.py')
+        review=self.manager.review(tree['id'],new_paths=['renamed.py'])
+        (self.root/'a.py').write_text('new human data\n')
+        with self.assertRaisesRegex(ValueError,'conflict'):self.manager.integrate(review['review'])
+        self.assertFalse((self.root/'renamed.py').exists());self.assertEqual((self.root/'a.py').read_text(),'new human data\n')
+
+    def test_snapshot_cleanup_never_follows_links_and_is_resumable(self):
+        tree=self.tree();outside=self.home/'outside';outside.mkdir();(outside/'keep.txt').write_text('keep')
+        (Path(tree['path'])/'escape').symlink_to(outside,target_is_directory=True)
+        with patch('codine.tree_cleanup.remove_tree',side_effect=OSError('simulated failure')):
+            with self.assertRaises(OSError):self.manager.cleanup(tree['id'])
+        self.assertEqual(self.manager._load(tree['id'],require_tree=False)['status'],'cleanup_pending')
+        self.assertEqual(self.manager.cleanup(tree['id'])['status'],'cleaned')
+        self.assertEqual((outside/'keep.txt').read_text(),'keep')
+        self.assertFalse(Path(tree['path']).exists())
+        self.assertEqual(self.manager.cleanup(tree['id'])['status'],'cleaned')
+
+    def test_second_tree_conflict_cannot_overwrite_first_integration(self):
+        first=self.tree();second=self.tree()
+        self.edit(first,'a.py','first=1\n');self.edit(second,'a.py','second=1\n')
+        review_first=self.manager.review(first['id']);review_second=self.manager.review(second['id'])
+        self.manager.integrate(review_first['review'])
+        with self.assertRaisesRegex(ValueError,'conflict'):self.manager.integrate(review_second['review'])
+        self.assertEqual((self.root/'a.py').read_text(),'first=1\n')

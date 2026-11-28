@@ -397,3 +397,93 @@ def apply(workspace, changes):
         workspace.track_changes = tracked
         workspace.read_versions.clear(); workspace.read_ranges.clear(); workspace.lifecycle_versions.clear(); getattr(workspace, 'notebook_reads', {}).clear(); getattr(workspace, 'skill_reads', {}).clear()
     return {'status': 'applied', 'changeset': ident, 'paths': list(observed)}
+
+
+def install_state(workspace, path, current, after):
+    """One preapproved lifecycle state; original/group reservation already durable."""
+    if after is not None and after['mode'] == (current['mode'] & 0o777 if current else 0o644):
+        workspace._atomic_write(workspace.resolve(path, operation='write'), after['data'], current['data'] if current else None)
+        return
+    prepare(workspace, {path: (current, after)})
+    if after is None:
+        if current is not None: remove_guarded(workspace, path, current)
+    else:
+        with parent_fd(workspace, path, create=True) as (parent, leaf):
+            temporary = '.codine-integrate-' + uuid.uuid4().hex
+            handle = os.open(temporary, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            try:
+                with os.fdopen(handle, 'wb') as stream:
+                    stream.write(after['data']);stream.flush();os.fchmod(stream.fileno(), after['mode']);os.fsync(stream.fileno())
+                    owner = list(identity(os.fstat(stream.fileno()))[:2])
+                own(workspace, path, owner)
+                unchanged(workspace, path, current)
+                if current is None:
+                    os.link(temporary,leaf,src_dir_fd=parent,dst_dir_fd=parent,follow_symlinks=False)
+                    os.unlink(temporary,dir_fd=parent)
+                else: os.replace(temporary,leaf,src_dir_fd=parent,dst_dir_fd=parent)
+                os.fsync(parent)
+            finally:
+                try: os.unlink(temporary,dir_fd=parent)
+                except FileNotFoundError: pass
+    complete(workspace)
+
+
+def apply_states(workspace, entries):
+    """Reviewed host API for replacements/creates/deletes/modes, never a raw model tool.
+
+    Each entry binds a full observed before-state (or None), and an intended
+    {'data': bytes, 'mode': int} after-state (or None). Renames are create+delete.
+    """
+    if workspace.mode == 'plan': raise ValueError('Changesets are disabled in planning mode.')
+    if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_PATHS:
+        raise ValueError('Provide 1–32 lifecycle changes.')
+    observed, desired = {}, {}
+    total = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {'path','before','after'}:
+            raise ValueError('Lifecycle changes require path, before, after.')
+        path = workspace.resolve(entry['path'],operation='write').relative_to(workspace.root).as_posix()
+        if path in observed: raise ValueError('Duplicate lifecycle path.')
+        validate_state(entry['before'])
+        current = snapshot(workspace,path,optional=True)
+        if not matches(current, entry['before']): raise ValueError('Lifecycle changeset conflict at '+path)
+        after = entry['after']
+        if after is not None:
+            if (not isinstance(after,dict) or set(after) != {'data','mode'} or not isinstance(after['data'],bytes)
+                    or len(after['data']) > 2_000_000 or type(after['mode']) is not int or not 0 <= after['mode'] <= 0o777):
+                raise ValueError('Invalid bounded lifecycle after-state.')
+            total += len(after['data'])
+        if current is None and after is None: raise ValueError('Cannot delete an absent path.')
+        observed[path], desired[path] = current, after
+    if total > MAX_BEFORE_BYTES: raise ValueError('Combined lifecycle data exceeds 8 MB.')
+    preview='\n'.join(diff(path,observed[path],after) for path,after in desired.items())
+    if len(preview.encode()) > 256000: raise ValueError('Combined lifecycle preview exceeds 256 KB.')
+    workspace.emit(preview)
+    for path in observed:
+        if not workspace._confirm(workspace.resolve(path,operation='write'),f'Apply reviewed lifecycle change to {path}?', '', '', preview='Preview shown in combined changeset above.'):
+            return {'status':'declined'}
+    for path,current in observed.items(): unchanged(workspace,path,current)
+    store=ChangesetStore(workspace.root);ident=group_id(workspace)
+    record=store.load(ident) if store.path(ident).exists() else {'id':ident,'version':1,
+        'session_id':getattr(workspace,'change_session_id',None),'status':'recorded','entries':{},'pending':None}
+    if record['pending'] or record['status'] in ('rewinding','rewound'):
+        raise ValueError('Recover the pending lifecycle group before applying changes.')
+    for path,current in observed.items():
+        if path in record['entries']:
+            if not matches(current,record['entries'][path]['expected']): raise ValueError('File changed outside this group.')
+        else: record['entries'][path]={'before':packed(current),'expected':state(current),'rewind':'pending'}
+    if len(record['entries']) > MAX_PATHS or sum(row['before']['size'] if row['before'] else 0 for row in record['entries'].values()) > MAX_BEFORE_BYTES:
+        raise ValueError('Lifecycle checkpoint exceeds bounds.')
+    store.save(record)  # Reserve ALL originals, including later untouched paths.
+    tracked=workspace.track_changes;workspace.track_changes=True
+    try:
+        # Publish destinations before removing rename sources. Any interruption
+        # remains recoverable from this one net checkpoint, without auto replay.
+        for path in sorted(desired,key=lambda path: desired[path] is None):
+            unchanged(workspace,path,observed[path])
+            install_state(workspace,path,observed[path],desired[path])
+    finally:
+        workspace.track_changes=tracked
+        workspace.read_versions.clear();workspace.read_ranges.clear();workspace.lifecycle_versions.clear()
+        getattr(workspace,'notebook_reads',{}).clear();getattr(workspace,'skill_reads',{}).clear()
+    return {'status':'applied','changeset':ident,'paths':list(observed)}

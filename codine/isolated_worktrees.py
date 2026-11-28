@@ -9,7 +9,7 @@ import re
 import stat
 import uuid
 
-from .changesets import apply, diff, state, matches
+from .changesets import apply_states, diff, state, matches
 from .file_lifecycle import snapshot
 from .input_settings import directory
 from .paths import STATE_ROOT
@@ -121,6 +121,7 @@ class IsolatedTrees:
             current = snapshot(self.parent, name)
             if b'\0' in current['data']: raise ValueError('Snapshot editing currently supports UTF-8 text only.')
             current['data'].decode('utf-8')
+            if current['mode'] & ~0o777: raise ValueError('Special permission bits cannot be staged.')
             total += len(current['data'])
             if len(current['data']) > LIMITS.max_file_bytes or total > LIMITS.max_total_bytes:
                 raise ValueError('Snapshot exceeds per-file/total byte bounds.')
@@ -161,6 +162,8 @@ class IsolatedTrees:
                         stream.write(current['data']);stream.flush();os.fsync(stream.fileno())
                         os.fchmod(stream.fileno(), current['mode'] & 0o777)
             os.fsync(fd)
+        tree_info=(location/'tree').stat()
+        record['tree_identity']=[tree_info.st_dev,tree_info.st_ino]
         record['status']='ready'
         self._write_record(record)
         return {'id': ident, 'path': str(location/'tree'), 'base_digest': digest(record),
@@ -185,18 +188,21 @@ class IsolatedTrees:
         for name in names:
             current = snapshot(child, name, optional=True)
             base = record['files'].get(name)
-            if current is None: raise ValueError('Deleted files are unsupported; restore the tree file before review. Deletions are never silently omitted.')
-            if b'\0' in current['data']: raise ValueError('Binary integration is unsupported.')
-            content = current['data'].decode('utf-8')
-            total += len(current['data'])
-            if len(current['data']) > LIMITS.max_file_bytes or total > LIMITS.max_total_bytes:
-                raise ValueError('Integration byte bounds exceeded.')
-            if base and current['mode'] != base['mode']: raise ValueError('File-mode changes are unsupported; restore the original mode.')
-            if base and hashlib.sha256(current['data']).hexdigest() == base['sha256']: continue
+            if current is None:
+                if base is None: raise ValueError('Selected new path is missing.')
+                content = None
+            else:
+                if b'\0' in current['data']: raise ValueError('Binary integration is unsupported.')
+                content = current['data'].decode('utf-8')
+                total += len(current['data'])
+                if len(current['data']) > LIMITS.max_file_bytes or total > LIMITS.max_total_bytes:
+                    raise ValueError('Integration byte bounds exceeded.')
+                if current['mode'] & ~0o777: raise ValueError('Special permission bits are not permitted.')
+                if base and hashlib.sha256(current['data']).hexdigest() == base['sha256'] and current['mode'] == base['mode']: continue
             self.parent.resolve(name, operation='write')
             parent = snapshot(self.parent, name, optional=True)
             if not matches(parent, base): raise ValueError('Parent conflict at '+name+'; no files were changed.')
-            changes.append({'path': name, 'content': content, 'expected_sha256': base['sha256'] if base else None})
+            changes.append({'path': name, 'content': content, 'mode': current['mode'] if current else None, 'before': base})
             identities[name] = state(current)
             previews.append(diff(name, parent, current))
         preview='\n'.join(previews)
@@ -241,17 +247,10 @@ class IsolatedTrees:
             recheck()  # Approvals cannot silently authorize newer child bytes.
             return decision
         target=self._workspace(self.parent.root, approve=approve)
-        # Review/integration has its own read coverage, never authorizes later
-        # parent/model edits. apply() still requires full regions and fresh hashes.
-        for change in proposal['changes']:
-            if change['expected_sha256'] is None: continue
-            page={}
-            while True:
-                result=target.read_file(change['path'],expected_sha256=change['expected_sha256'],**page)
-                if result['next_page'] is None: break
-                page=result['next_page']
         recheck()
-        result=apply(target,proposal['changes'])
+        entries=[{'path':row['path'], 'before':row['before'], 'after':None if row['content'] is None else
+                  {'data':row['content'].encode(), 'mode':row['mode']}} for row in proposal['changes']]
+        result=apply_states(target,entries)
         if result.get('status')=='applied': self.reviews.pop(review,None)
         return result
 
@@ -261,16 +260,20 @@ class IsolatedTrees:
         target=self._ident(ident)/'tree'
         if not self.parent.approve('Delete isolated editing tree '+str(target)+' and all unintegrated edits? Parent files/branches will not be reset. Receipt is retained for recovery.'):
             return {'status':'declined','id':ident}
-        # This API only removes registered Git worktrees. Snapshot cleanup uses
-        # descriptor-based removal in a subsequent phase, never broad rmtree.
-        if not record.get('git'):
-            raise ValueError('Snapshot-tree cleanup is not yet supported through this API.')
-        if target.exists() and record['git'].get('gitfile_sha256'):
+        if os.path.lexists(target) and record.get('tree_identity'):
+            info=target.lstat()
+            if not stat.S_ISDIR(info.st_mode) or [info.st_dev,info.st_ino]!=record['tree_identity']:
+                raise ValueError('Managed tree directory identity changed; cleanup refused.')
+        if target.exists() and record.get('git') and record['git'].get('gitfile_sha256'):
             with directory(target) as fd:
                 current = hashlib.sha256(_read_file(fd,('.git',),8192)).hexdigest()
             if current != record['git']['gitfile_sha256']: raise ValueError('Child Git metadata changed; cleanup refused.')
         record['status']='cleanup_pending';self._write_record(record)
-        from .git_worktrees import detach
-        detach(self.parent.root,target,record['git'])
+        if record.get('git'):
+            from .git_worktrees import detach
+            detach(self.parent.root,target,record['git'])
+        else:
+            from .tree_cleanup import remove_tree
+            with directory(self._ident(ident)) as fd: remove_tree(fd,'tree')
         record['status']='cleaned';self._write_record(record)
         return {'status':'cleaned','id':ident,'receipt_retained':True}
