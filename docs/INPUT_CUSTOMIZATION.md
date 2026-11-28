@@ -36,7 +36,7 @@ Create `~/.config/codine/input.json` yourself, outside the project, with mode 06
 }
 ```
 
-Settings take effect at startup. Omit keys to keep defaults. Set `history` to
+Settings take effect at startup. When the project contains these user paths (for example, launching from your HOME directory), Codine visibly disables user input customization and persistent history for that run and keeps the default interactive prompt usable. Choose a narrower project directory to enable them; project-local configuration is never loaded as editor authority. Omit keys to keep defaults. Set `history` to
 false to disable both saved and in-memory prompt history. Bindings use
 prompt-toolkit key names and one or two sequential keys; for example `f6` is a
 single function key, while `escape`, `enter` is Alt+Enter. Duplicate/prefix

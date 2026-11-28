@@ -132,3 +132,33 @@ class InputSettingsTests(unittest.TestCase):
             for name in ('input.json', 'input-history.json', 'input-history.json.lock'):
                 with self.assertRaisesRegex(ValueError, 'protected'):
                     workspace.resolve(name)
+
+    def test_home_project_keeps_default_prompt_without_loading_user_authority(self):
+        from codine.terminal import Terminal
+        terminal = Terminal(self.redactor, interactive=False)
+        terminal.interactive = True
+        terminal._configure_editor = Mock()
+        terminal.write = Mock()
+        with patch('codine.input_settings.INPUT_PATH', self.project / 'input.json'), patch('codine.input_settings.HISTORY_PATH', self.project / 'history.json'), patch('codine.input_settings.preferences') as read:
+            terminal.configure_input(self.project)
+        read.assert_not_called()
+        terminal._configure_editor.assert_called_once_with()
+        self.assertIsNone(terminal.input_preferences)
+        self.assertIsNone(terminal.prompt_history)
+        self.assertIn('disabled', terminal.write.call_args.args[0])
+
+    def test_real_terminal_launches_when_project_is_home(self):
+        from tests.test_terminal_integration import PTY
+        from codine.config import APP_ROOT
+        terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--provider', 'nvidia', '--project', str(self.project)], self.project, {'HOME': str(self.project)})
+        try:
+            terminal.until(b'persistent history disabled')
+            terminal.until('›'.encode())
+            terminal.send(b'/help\r')
+            terminal.until(b'Show this guide')
+            terminal.send(b'exit\r')
+            terminal.until(b'Goodbye!')
+            self.assertEqual(terminal.process.wait(timeout=5), 0)
+            self.assertFalse((self.project / '.local/state/codine/input-history.json').exists())
+        finally:
+            terminal.close()

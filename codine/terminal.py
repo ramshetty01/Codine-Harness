@@ -159,9 +159,14 @@ class Terminal:
     def configure_input(self, project):
         if not self.interactive:
             return
-        from .input_settings import preferences, PrivateHistory, HISTORY_PATH, outside_project
+        from pathlib import Path
+        from .input_settings import preferences, PrivateHistory, INPUT_PATH, HISTORY_PATH
+        if any(path.resolve().is_relative_to(Path(project).resolve()) for path in (INPUT_PATH, HISTORY_PATH)):
+            self.input_preferences = self.prompt_history = None
+            self._configure_editor()
+            self.write('User input settings and persistent history disabled: their paths are inside this project. Default keys remain available; choose a narrower project to enable user customization.')
+            return
         settings = preferences(project)
-        outside_project(HISTORY_PATH, project)
         from prompt_toolkit.history import DummyHistory
         history = PrivateHistory(HISTORY_PATH, lambda: self.redactor) if settings['history'] else DummyHistory()
         self.input_preferences = settings
