@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/settings': 'Show redacted effective settings and their sources',
     '/status': 'Inspect phase, queue, context estimate and local cost',
     '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',
     '/drop': 'Remove a queued item', '/next': 'Run the next queued item', '/stop': 'Cancel the busy turn',

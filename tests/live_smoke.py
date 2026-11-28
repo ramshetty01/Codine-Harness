@@ -24,7 +24,7 @@ def main():
         config.max_tokens = 4096
         if not config.api_key:
             raise SystemExit('BLOCKED: NVIDIA_API_KEY is not configured.')
-        redactor = Redactor.environment()
+        redactor = config.redactor()
         store = SessionStore(root, redactor)
         session = Session.create(root, config.model, SYSTEM)
         provider = NvidiaProvider(config)

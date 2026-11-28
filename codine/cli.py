@@ -146,6 +146,9 @@ def command(text, agent, workspace, ui):
     elif name == '/status':
         from .status_view import snapshot, lines
         ui.write('\n'.join(lines(snapshot(agent, workspace, ui, session.execution.get('executor', 'host')))))
+    elif name == '/settings':
+        from .settings import describe
+        ui.write(describe(agent.config, session.model))
     elif name == '/usage':
         from .usage import describe
         ui.write(describe(session.usage_details))
@@ -420,7 +423,7 @@ def main(argv=None):
         # Capture only explicitly named shell values before dotenv can add project settings.
         execution_credentials = execution_profile.capture_shell() if execution_profile else None
         config = Config.load(args.project, provider=args.provider, model=args.model)
-        redactor = Redactor.environment()
+        redactor = config.redactor()
         ui.redactor = redactor
         if hasattr(ui, 'configure_input'):
             ui.configure_input(config.project)
@@ -434,6 +437,12 @@ def main(argv=None):
             if args.provider and args.provider != session.provider:
                 raise ValueError('Saved provider differs from --provider. Start a new session to switch providers.')
             config = Config.load(config.project, provider=session.provider, model=args.model or session.model)
+            if not args.provider:
+                config.setting_sources['provider'] = 'saved session'
+            if not args.model:
+                config.setting_sources['model'] = 'saved session'
+            redactor = config.redactor()
+            ui.redactor = store.redactor = redactor
             if args.model:
                 session.model = args.model
         execution = session.execution

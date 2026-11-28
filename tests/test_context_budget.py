@@ -78,8 +78,8 @@ class ContextBudgetTests(unittest.TestCase):
 
     def test_env_limits_reject_invalid_shapes(self):
         for limits in ('[]', '{"x": {"context_tokens": true}}', '{"x": {"typo": 100}}'):
-            with patch.dict(os.environ, {'CODINE_MODEL_LIMITS': limits}), patch('codine.config.load_dotenv'):
+            with patch.dict(os.environ, {'CODINE_MODEL_LIMITS': limits}), patch('codine.settings.read_env', return_value={}):
                 with self.assertRaises(ValueError):
                     Config.load(Path.cwd(), provider='nvidia')
-        with patch.dict(os.environ, {'CODINE_MODEL_LIMITS': json.dumps({'small': {'context_tokens': 8192, 'output_tokens': 512}})}), patch('codine.config.load_dotenv'):
+        with patch.dict(os.environ, {'CODINE_MODEL_LIMITS': json.dumps({'small': {'context_tokens': 8192, 'output_tokens': 512}})}), patch('codine.settings.read_env', return_value={}):
             self.assertEqual(Config.load(Path.cwd(), provider='nvidia').request_limits('small'), (8192, 512))
