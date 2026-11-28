@@ -108,7 +108,11 @@ with Client(Path.cwd(), resume=session) as client:
     assert client.status()['mode'] == 'ask'
 """])
         print(run([python, '-m', 'codine.evals', '--offline']).strip())
-        report = json.loads((project / '.codine/evals/offline.json').read_text())
+        reports=list((project / '.codine/evals').glob('offline-*.json'))
+        assert len(reports)==1, 'Default evaluation must retain one uniquely named attempt'
+        report=json.loads(reports[0].read_text())
+        assert report['attempt']['status']=='completed'
+        assert reports[0].stem=='offline-'+report['attempt']['id']
         assert report['passed'] == report['total'] == 12
         assert report['provenance']['source']['files']
         print('Installed wheel: imports, resources, offline startup, session location, restart, local extension lifecycle and SDK/RPC resume passed; parent network blocked.')

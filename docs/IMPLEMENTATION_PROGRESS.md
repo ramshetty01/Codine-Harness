@@ -442,3 +442,38 @@ blocks cleanup while ownership is active or unresolved; all 42 focused storage,
 worker and supervisor checks passed. No real user cleanup or new API spending
 occurred. Isolated Git worktrees, task dependencies/resources, and controlled
 repeat-evaluation reports are being implemented separately.
+
+## Multi-language acceptance and reviewed runtime foundations
+
+Hosted run [46100377445](https://github.com/ramshetty01/Codine-Harness/actions/runs/46100377445)
+passed all nine jobs at `8c522bc`, including the pinned JavaScript image and all
+three command packs. R1 is closed with its source/license/oracle evidence and
+explicit small-project scope: **72/91 issues closed, 5/8 milestones closed**.
+
+The next integration through `89c1572` passed **910 tests** with Docker, the Node
+fixture image and CI network guard enabled, zero skips. It adds real linked Git
+worktrees pinned without checkout, reviewed grouped creation/deletion/rename/mode
+integration, ownership-preserving checkpoints, and bounded cleanup recovery.
+P4 exposes explicit `/workers` dependency waves, parent-owned spending, selectable
+limits, private resource leases and recovery without replay. Retention now keeps
+worker-plan owners even before their first child link is created. Editing-worker
+runtime attachment and its active-tree cleanup guard are still being built; M7
+and its implementation issues remain open pending that combined gate.
+
+U7 adds private `/theme auto|dark|light|contrast` preferences, measured explicit
+palette contrast and real narrow ANSI/vt100 PTY switching. NO_COLOR/dumb/plain
+output takes precedence. Independent review added protection of the global theme
+file against model writes in broad projects. The selected palettes do not claim
+certification for every terminal, color approximation or screen reader.
+
+Q4/Q5 foundations retain distinct attempt IDs and partial failures, bind model,
+request, task and grading conditions for comparisons, and report unknown costs
+and coverage honestly. A reviewed regression also proves that a changed run
+budget invalidates comparison (eight evaluation-attempt tests pass). The next
+oracle/actual-agent command-corpus work is not yet part of this checkpoint.
+
+Installed-wheel checks passed after adapting the smoke check to the deliberately
+unique offline report filename, including validating its completed attempt ID.
+All bundled corpora validate outside the source checkout. No live inference or
+real cleanup occurred; the OpenRouter ledger remains spent `0.011877392`, pending
+null and unblocked. The user's unrelated example.py edit remains unstaged.
