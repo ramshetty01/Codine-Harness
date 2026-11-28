@@ -3,11 +3,12 @@ from dataclasses import asdict, dataclass
 from email.utils import parsedate_to_datetime
 import math
 import random
-import ssl
 import time
 import urllib.error
 
 from openai import APIConnectionError, APITimeoutError
+
+from .connection_retry import certificate_failure
 
 
 @dataclass(frozen=True)
@@ -88,8 +89,8 @@ def classify_failure(error, *, operation='completion', now=None):
         category, transient = 'timeout', True
         message = 'Provider operation timed out.'
         action = 'Check connectivity and provider activity; a timeout does not prove the request was uncharged.'
-    elif isinstance(error, ssl.SSLCertVerificationError) or (
-            isinstance(error, urllib.error.URLError) and isinstance(error.reason, ssl.SSLCertVerificationError)):
+    elif certificate_failure(error) or (
+            isinstance(error, urllib.error.URLError) and certificate_failure(error.reason)):
         category, message = 'tls_configuration', 'Provider TLS certificate verification failed.'
         action = 'Fix the local certificate configuration; do not disable TLS verification.'
     elif isinstance(error, (APIConnectionError, urllib.error.URLError, ConnectionError)):

@@ -56,6 +56,72 @@ class ConnectionRetryTests(unittest.TestCase):
                 provider.close()
                 patch.stopall()
 
+    def test_real_transport_separates_connect_from_post_send_failures(self):
+        # Exercise HTTPX2's actual HTTPTransport + httpcore2 HTTP/1.1 machinery,
+        # replacing only the network backend. No socket or model API is used.
+        import httpcore2
+        for phase in ('connect', 'write', 'read'):
+            with self.subTest(phase=phase):
+                connections, writes = [], []
+                class Stream:
+                    def start_tls(self, **kwargs): return self
+                    def get_extra_info(self, name): return None
+                    def close(self): pass
+                    def write(self, buffer, timeout=None):
+                        writes.append(buffer)
+                        if phase == 'write': raise httpcore2.WriteError('offline write failed')
+                    def read(self, max_bytes, timeout=None):
+                        raise httpcore2.ReadError('offline response lost')
+                def connect(*args, **kwargs):
+                    connections.append(1)
+                    if phase == 'connect': raise httpcore2.ConnectError('offline connect failed')
+                    return Stream()
+                factory = lambda **kwargs: DefaultHttpxClient(
+                    transport=httpx.HTTPTransport(trust_env=False), trust_env=False, **kwargs)
+                provider = NvidiaProvider(SimpleNamespace(api_key='offline-fake-key', show_reasoning=False))
+                try:
+                    with patch('codine.provider.DefaultHttpxClient', side_effect=factory), \
+                         patch('httpcore2._backends.sync.SyncBackend.connect_tcp', side_effect=connect), \
+                         patch('codine.connection_retry.time.sleep'), \
+                         self.assertRaises(APIConnectionError):
+                        provider._send_prepared('offline', [], {'stream': True}, lambda *_: None)
+                    self.assertEqual(len(connections), 3 if phase == 'connect' else 1)
+                    if phase == 'connect': self.assertEqual(writes, [])
+                    else: self.assertTrue(writes[0].startswith(b'POST '))
+                    self.assertIsNone(provider.client._workload_identity_auth)
+                    self.assertIsNone(provider.client._api_key_provider)
+                finally:
+                    provider.close()
+
+    def test_wrapped_certificate_failure_advice_is_not_transient(self):
+        from codine.failure_policy import classify_failure, retry_metadata_read
+        import urllib.error
+        calls = []
+        def handler(request):
+            calls.append(request)
+            try:
+                raise ssl.SSLCertVerificationError('private certificate diagnostic')
+            except ssl.SSLCertVerificationError as error:
+                raise httpx.ConnectError('private transport diagnostic', request=request) from error
+        provider = self.provider(NvidiaProvider, handler)
+        with self.assertRaises(APIConnectionError) as caught:
+            provider._send_prepared('offline', [], {'stream': True}, lambda *_: None)
+        self.assertEqual(len(calls), 1)
+        for error in (caught.exception, urllib.error.URLError(caught.exception)):
+            for operation in ('completion', 'metadata'):
+                info = classify_failure(error, operation=operation)
+                self.assertEqual(info.category, 'tls_configuration')
+                self.assertFalse(info.transient)
+                self.assertFalse(info.retry_safe)
+                self.assertNotIn('private', str(info.as_dict()))
+        attempts = []
+        def read(timeout):
+            attempts.append(timeout)
+            raise caught.exception
+        with self.assertRaises(APIConnectionError):
+            retry_metadata_read(read)
+        self.assertEqual(len(attempts), 1)
+
     def test_exhausted_connect_timeouts_are_bounded(self):
         calls = []
         def handler(request):
