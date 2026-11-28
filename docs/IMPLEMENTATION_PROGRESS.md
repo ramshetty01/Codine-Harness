@@ -292,3 +292,33 @@ See [INSTRUCTION_HIERARCHY.md](INSTRUCTION_HIERARCHY.md), [SETTINGS.md](SETTINGS
 M3 still needs its combined long-task/summary-quality acceptance gate; closing its
 implementation issues alone does not close that milestone. M5 extension trust,
 skills, reviewed memory and the versioned extension lifecycle remain in progress.
+
+## Trusted customization runtime
+
+I3 now binds executable trust to a project and exact reviewed file bytes. I4 adds
+progressive `SKILL.md` loading with bounded references. I6/C7 separate pending
+memory proposals from explicitly approved project facts; summaries and resumed
+sessions cannot approve proposals. Historical messages are retained when active
+memory is deleted.
+
+X1/X2/X3 provide a versioned extension SDK, supervised worker and explicit terminal
+lifecycle. Real-worker tests cover tool/command/event/panel registration, changed
+source requiring new trust, revocation, replacement failures preserving the old
+worker, approval/planning restrictions, and timeout/cancellation cleanup. These
+workers execute trusted host Python; they are not OS sandboxes. Completion events
+are best-effort notifications after durable successful turns, never replayed by
+session resume.
+
+Integration at `729e65f` passed **659 Docker-enabled tests with zero skips**.
+The installed wheel passed startup/resources/session/restart, 12/12 offline
+exercises, and real extension load/invoke/reload/cleanup outside the checkout.
+Hosted run [46094480988](https://github.com/ramshetty01/Codine-Harness/actions/runs/46094480988)
+was still running when this checkpoint was written. A review identified a stale
+cancellation flag blocking idle extension commands after an interrupted turn;
+that follow-up and its regression gate remain outstanding here. M5 stays open
+until those gates complete. See [MILESTONE5_ACCEPTANCE.md](MILESTONE5_ACCEPTANCE.md).
+
+No live inference was used. Four workstreams continue: MCP integration, versioned
+package management, session forks, and root integration/acceptance. Optional
+product milestones and live model-quality evaluation remain separate unfinished
+scope; this checkpoint does not claim full Pi/Claude Code parity.
