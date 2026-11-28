@@ -11,7 +11,7 @@ import re
 import stat
 import uuid
 
-from .input_settings import directory, private_read
+from .input_settings import directory
 from .prompt_templates import parse_json, text_value
 from .transcripts import scrub
 
@@ -25,6 +25,32 @@ def encoded(value):
 
 def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
+
+
+def private_memory_read(directory_fd):
+    """Read one stable private descriptor; reject changes while loading context."""
+    fd = os.open('memory.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+    try:
+        before = os.fstat(fd)
+        def validate(info):
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
+                    info.st_nlink != 1 or info.st_mode & 0o077 or info.st_size > MAX_BYTES):
+                raise ValueError('Memory must be a private regular file within its size limit.')
+        validate(before)
+        data = bytearray()
+        while len(data) <= MAX_BYTES:
+            chunk = os.read(fd, MAX_BYTES + 1 - len(data))
+            if not chunk: break
+            data.extend(chunk)
+        after = os.fstat(fd)
+        validate(after)
+        version = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+                                info.st_ctime_ns, info.st_uid, info.st_mode, info.st_nlink)
+        if len(data) > MAX_BYTES or version(before) != version(after):
+            raise ValueError('Memory changed while reading; retry with a fresh snapshot.')
+        return bytes(data)
+    finally:
+        os.close(fd)
 
 
 class ProjectMemory:
@@ -64,7 +90,7 @@ class ProjectMemory:
 
     def _read(self, fd):
         try:
-            return self.validate(parse_json(private_read(fd, 'memory.json', MAX_BYTES).decode('utf-8')))
+            return self.validate(parse_json(private_memory_read(fd).decode('utf-8')))
         except FileNotFoundError:
             return self.empty()
 

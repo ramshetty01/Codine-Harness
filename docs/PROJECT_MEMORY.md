@@ -92,3 +92,8 @@ and aggregate size/count limits. Its real PTY test uses a fake provider: a model
 proposes a fact, the user approves it at the actual terminal prompt, the next
 request sees it, the user deletes it, and the following request omits it from
 memory context. These tests perform no live inference.
+
+Memory loading checks the opened descriptor before and after reading. Changes to
+contents, ownership, permissions or link count during the read fail closed; retry
+with a fresh snapshot. A loaded snapshot is data, not a permission policy, and
+these checks do not claim immunity to model prompt injection.
