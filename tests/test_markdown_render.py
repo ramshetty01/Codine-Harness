@@ -79,6 +79,29 @@ class MarkdownTests(unittest.TestCase):
             self.assertEqual(result.count('# Answer'),1)
             if not color: self.assertNotIn('\x1b',result)
 
+    def test_partial_text_is_visible_before_newline_or_finish(self):
+        terminal=Terminal(Redactor(),interactive=False)
+        terminal.color=True
+        fragments=[]; terminal.markdown.write=fragments.extend
+        with redirect_stdout(io.StringIO()):
+            terminal.emit('text','FINAL_TEXT_READY')
+            self.assertEqual(''.join(text for _,text in fragments),'FINAL_TEXT_READY')
+            terminal.emit('text',' and done')
+            terminal.emit('end_stream','')
+        self.assertEqual(''.join(text for _,text in fragments),'FINAL_TEXT_READY and done')
+
+    def test_partial_fences_and_markdown_preserve_source_and_following_style(self):
+        out=[]; renderer=MarkdownStream(out.extend)
+        for char in SAMPLE:
+            renderer.feed(char); renderer.flush_partial()
+            self.assertLessEqual(len(renderer.prefix),LINE_LIMIT)
+        renderer.finish()
+        self.assertEqual(''.join(text for _,text in out),SAMPLE)
+        code=[text for tone,text in out if tone=='md.code']
+        self.assertIn('print("hello")', ''.join(code))
+        self.assertIn(('md.heading','R'),out)
+        self.assertIsNone(renderer.fence)
+
     def test_no_color_keeps_plain_markdown(self):
         with patch.dict(os.environ,{'NO_COLOR':'1'}), patch('codine.terminal.PromptSession'):
             terminal=Terminal(Redactor(),interactive=True)

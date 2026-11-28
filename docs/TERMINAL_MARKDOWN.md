@@ -15,13 +15,17 @@ wrapping, so narrow windows do not lose source text. This is lightweight emphasi
 not a complete CommonMark parser: nested formatting, escaped delimiters, HTML,
 images, and reference links are not interpreted.
 
-A colored answer buffers one line to classify it; a short unfinished line appears
-when the section ends. Completed lines appear during streaming. Lines exceeding
-8,192 characters switch to incremental plain output, bounding retained text and
-regex work. Incoming fragment boundaries do not change reconstruction. Finishing
-an answer flushes its remainder once, without reprinting a formatted final copy.
+Colored answers display available fragments immediately, including an unfinished
+line when the provider pauses. The renderer retains at most 8,192 characters of
+already-printed line context to classify subsequent fragments and recognize
+split code fences. It never redraws that prefix. Formatting that becomes known
+only later (such as a closing bold delimiter) does not retroactively restyle
+already-printed text. Complete incoming lines receive full lightweight styling.
+Oversized lines switch to plain incremental output until the next newline.
+Finishing flushes any remainder once, without reprinting a formatted final copy.
 An unfinished code fence is reset when the answer section ends. Reasoning and
-command output retain their existing presentation.
+command output retain their existing presentation. Existing secret-redaction
+lookahead still takes precedence over immediate display.
 
 Known-secret redaction happens before rendering, including secrets split across
 provider fragments. Model control characters cannot become terminal instructions.

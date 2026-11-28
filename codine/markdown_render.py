@@ -14,10 +14,11 @@ def sanitize(text):
 
 
 class MarkdownStream:
-    """Write each source character once, styling only complete bounded lines."""
+    """Write each source character once with bounded Markdown context."""
     def __init__(self, write):
         self.write = write
         self.pending = ''
+        self.prefix = ''
         self.fence = None
         self.long_line = False
 
@@ -59,6 +60,42 @@ class MarkdownStream:
         if fragments:
             self.write(fragments)
 
+    def _continuation(self, text, final=False):
+        """Style bounded line context, but emit only its not-yet-printed suffix."""
+        fragments = []
+        writer, fence = self.write, self.fence
+        self.write = fragments.extend
+        try:
+            self._line(self.prefix + text)
+        finally:
+            self.write = writer
+            if not final:
+                self.fence = fence
+        skip = len(self.prefix)
+        for tone, value in fragments:
+            if skip >= len(value):
+                skip -= len(value)
+            else:
+                self.write([(tone, value[skip:])])
+                skip = 0
+        if final:
+            self.prefix = ''
+        elif len(self.prefix) + len(text) <= LINE_LIMIT:
+            self.prefix += text
+        else:
+            self.prefix = ''
+            self.long_line = True
+
+    def flush_partial(self):
+        """Expose available text immediately, even if the provider now stalls."""
+        if not self.pending:
+            return
+        if self.long_line:
+            self.write([('md.code' if self.fence else 'text', self.pending)])
+        else:
+            self._continuation(self.pending)
+        self.pending = ''
+
     def feed(self, text):
         # Slice before accumulating, bounding memory even for an oversized chunk.
         for offset in range(0, len(text), LINE_LIMIT):
@@ -69,13 +106,19 @@ class MarkdownStream:
                     line, self.pending = self.pending[:newline + 1], self.pending[newline + 1:]
                     if self.long_line:
                         self.write([('md.code' if self.fence else 'text', line)])
+                    elif self.prefix:
+                        self._continuation(line, final=True)
                     else:
                         self._line(line)
                     self.long_line = False
                 elif len(self.pending) >= LINE_LIMIT:
                     # Oversized lines stay copyable, with deterministic chunks
                     # independent of incoming provider fragment boundaries.
-                    self.write([('md.code' if self.fence else 'text', self.pending[:LINE_LIMIT])])
+                    if self.prefix:
+                        self._continuation(self.pending[:LINE_LIMIT])
+                    else:
+                        self.write([('md.code' if self.fence else 'text', self.pending[:LINE_LIMIT])])
+                    self.prefix = ''
                     self.pending = self.pending[LINE_LIMIT:]
                     self.long_line = True
                 else:
@@ -85,8 +128,11 @@ class MarkdownStream:
         if self.pending:
             if self.long_line:
                 self.write([('md.code' if self.fence else 'text', self.pending)])
+            elif self.prefix:
+                self._continuation(self.pending, final=True)
             else:
                 self._line(self.pending)
         self.pending = ''
+        self.prefix = ''
         self.fence = None
         self.long_line = False

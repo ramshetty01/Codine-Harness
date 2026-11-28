@@ -351,6 +351,7 @@ class Terminal:
             clean = self.clean(self.buffer[:cut])
             if self.color and self.section == 'text':
                 self.markdown.feed(clean)
+                self.markdown.flush_partial()
             else:
                 print(clean, end='', flush=True)
             self.buffer = self.buffer[cut:]
