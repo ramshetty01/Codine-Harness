@@ -4,7 +4,9 @@ import copy
 import re
 import hashlib
 from dataclasses import dataclass, field
-from openai import OpenAI
+from openai import OpenAI, DefaultHttpxClient
+import httpx2 as httpx
+from .connection_retry import create_stream
 from .config import BASE_URL
 
 
@@ -275,6 +277,7 @@ class NvidiaProvider:
         self.capability_declarations = capability_declarations
         self.config = config
         self.client = None
+        self._owned_client = None
 
     def close(self):
         if self.client:
@@ -296,10 +299,11 @@ class NvidiaProvider:
 
     def _send_prepared(self, model, messages, kwargs, emit):
         if self.client is None:
-            self.client = OpenAI(api_key=self.config.api_key, base_url=BASE_URL, timeout=120.0, max_retries=0)
-        with self.client.chat.completions.create(
-            model=model, messages=messages, **kwargs,
-        ) as stream:
+            self.client = OpenAI(api_key=self.config.api_key, base_url=BASE_URL, timeout=httpx.Timeout(120.0, connect=5.0, write=30.0, pool=5.0), max_retries=0,
+                                 http_client=DefaultHttpxClient(follow_redirects=False))
+            self._owned_client = self.client
+        with create_stream(self.client, {'model': model, 'messages': messages, **kwargs}, emit,
+                           owned=self._owned_client is self.client) as stream:
             return collect_stream(stream, emit, self.config.show_reasoning)
 
 
@@ -310,6 +314,7 @@ class OpenRouterProvider:
         self.capability_declarations = capability_declarations
         self.config = config
         self.client = None
+        self._owned_client = None
 
     def close(self):
         if self.client:
@@ -333,8 +338,9 @@ class OpenRouterProvider:
 
     def _send_prepared(self, model, messages, kwargs, emit):
         if self.client is None:
-            self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=120.0, max_retries=0)
-        with self.client.chat.completions.create(
-            model=model, messages=messages, **kwargs,
-        ) as stream:
+            self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=httpx.Timeout(120.0, connect=5.0, write=30.0, pool=5.0), max_retries=0,
+                                 http_client=DefaultHttpxClient(follow_redirects=False))
+            self._owned_client = self.client
+        with create_stream(self.client, {'model': model, 'messages': messages, **kwargs}, emit,
+                           owned=self._owned_client is self.client) as stream:
             return collect_openrouter_stream(stream, emit, self.config.show_reasoning)

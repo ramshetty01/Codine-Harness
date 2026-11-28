@@ -4,7 +4,7 @@ Codine separates a failure that might be temporary from a request that is safe t
 
 ## Completion requests
 
-Both completion adapters keep the SDK's `max_retries=0`. Codine does not automatically resend a completion after HTTP 429, 5xx, timeout, disconnect or incomplete streaming. It does not infer zero billing from an HTTP status, exception class, missing response or provider error message.
+Both completion adapters keep the SDK's `max_retries=0`. Codine does not automatically resend a transmitted completion after HTTP errors, read/write timeout, disconnect or incomplete streaming. It does not infer zero billing from an HTTP status, exception class, missing response or provider error message.
 
 The OpenRouter ledger reserves a request budget before dispatch. If the call fails without settled usage/cost, that reservation remains pending. A second completion is blocked. Inspect provider activity and use `/budget reconcile REQUEST_ID AMOUNT` with the actual charge before deliberately continuing; do not use zero merely to clear the block.
 
@@ -26,7 +26,32 @@ The CLI classifies SDK failures and supplies sanitized advice:
 
 No raw response body, exception message, authorization header or provider request URL is copied into classification metadata. `Retry-After` can be displayed as an advisory, capped at one day. It does not establish permission to replay a completion. Existing local/stream-format errors still report their bounded local messages.
 
-**A5 remains partial:** the current adapters do not expose validated zero-charge/replay evidence or a trusted pre-dispatch retry contract. Automatic inference retry is therefore deliberately unimplemented. Closing that gap requires a provider-specific proof path, budget reconciliation semantics, and tests covering lost/partial responses. Metadata retries below are not inference retries.
+## Connection establishment only
+
+Owned provider clients make at most three connection attempts: the original plus
+up to two retries after 0.25 and 0.5 seconds. This path accepts only the SDK's direct
+HTTPX2 `ConnectError`/`ConnectTimeout` cause during stream creation. Certificate
+validation failures do not retry. Other exceptions and injected/custom clients
+fail closed. The SDK's broader retries remain disabled, and owned clients reject
+redirects: a redirect could otherwise transmit a request before a later connection
+fails. Existing HTTP client proxy/environment behavior is retained.
+
+The boundary follows [HTTPX2's documented distinction between connection setup
+failures and read/write/status failures](https://pydantic.dev/docs/httpx2/advanced/transports/).
+These attempts occur before inference request transmission, not after a lost
+completion. Stream iteration happens outside the retry helper. A terminal stop
+checked before and after each short delay prevents the next connection attempt.
+Connect and pool timeouts are five seconds, writes thirty seconds and reads 120
+seconds. These are per-operation timeouts, not a hard total wall-clock deadline;
+DNS resolution and OS operations may finish later. There is no unbounded retry loop.
+
+One logical request retains one reservation and settles once on success. Exhausted
+connection attempts conservatively retain the existing pending reservation; this
+change never automatically settles a failed operation at zero. Reconciliation
+remains explicit, and pending reservations still block another logical request.
+HTTP 401/429/5xx, redirects, certificate failures, write/read failures and partial
+streams do not receive this retry. Full inference replay remains unsupported
+without separate provider-specific proof of billing and replay safety.
 
 ## Read-only metadata requests
 
@@ -47,3 +72,9 @@ Metadata errors return a generic unavailable message without credentials. Parsin
 ## Verification
 
 `tests/test_failure_policy.py` constructs actual SDK authentication, rate-limit, context, timeout and connection exceptions. Sleep, monotonic clock, wall clock and jitter are injected into retry tests. Tests exercise the real metadata GET path with fake responses, verify adapter SDK retries remain disabled, and verify persisted pending reservations block replay for SDK 429/timeout/disconnect errors. No provider network requests or model calls are needed.
+
+`tests/test_connection_retry.py` exercises both real SDK adapters with an in-memory
+HTTPX2 transport: bounded setup failures, byte-identical request bodies, no
+redirect/status/write/read/certificate/partial-stream replay, cancellation, custom
+client refusal, and one shared reservation/settlement (or retained pending block).
+These tests make no provider network request.
