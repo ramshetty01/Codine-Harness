@@ -200,3 +200,58 @@ class MCPTests(unittest.TestCase):
             command('trust local',self.agent,self.workspace,self.ui)
         self.assertFalse(self.ui.write.called)
         self.assertFalse((self.settings.root/'trust/receipts.json').exists())
+
+    def test_changed_declared_script_never_executes_in_check_to_launch_gap(self):
+        import subprocess
+        original=subprocess.Popen
+        marker=self.project/'UNAPPROVED_EXECUTED'
+        self.trust()
+        stages=[]
+        def mutate_before_spawn(argv,**kwargs):
+            stages.append(Path(argv[-1]))
+            self.script.write_text('from pathlib import Path\nPath("UNAPPROVED_EXECUTED").touch()\n'+SERVER)
+            return original(argv,**kwargs)
+        with patch('codine.mcp_transport.subprocess.Popen',side_effect=mutate_before_spawn):
+            with self.assertRaisesRegex(MCPError,'changed during discovery'):
+                self.manager.connect('local')
+        self.assertFalse(marker.exists())
+        self.assertNotEqual(stages[0],self.script)
+        self.assertFalse(stages[0].exists())
+        self.assertEqual(self.registry.tools,{})
+
+    def test_declared_sibling_import_uses_frozen_bytes_and_original_cwd(self):
+        helper=self.project/'helper.py';helper.write_text('VALUE="FROZEN_HELPER"\n')
+        self.script.write_text(SERVER.replace('import json,os,sys,time','import json,os,sys,time\nfrom helper import VALUE').replace("  text=msg['params']['arguments']['text']", "  text=VALUE+'|'+os.getcwd()"))
+        self.row['argv'].remove('-I')
+        self.row['files'].append(str(helper));self.save_config()
+        self.connect()
+        result=self.call('anything')['untrusted_server_result']['content'][0]['text']
+        self.assertEqual(result,'FROZEN_HELPER|'+str(self.project))
+        connection=self.manager.loaded['local']['connection']
+        staged=Path(connection.staged.name)
+        self.assertTrue(staged.exists())
+        self.manager.disconnect('local')
+        self.assertFalse(staged.exists())
+
+    def test_declared_stage_size_failure_and_cancel_remove_temporary_files(self):
+        self.trust()
+        with patch('codine.mcp_transport.STAGE_LIMIT',100):
+            with self.assertRaisesRegex(MCPError,'aggregate'):
+                self.manager.connect('local')
+        self.assertEqual(self.registry.tools,{})
+        self.manager.connect('local')
+        connection=self.manager.loaded['local']['connection']
+        stage=Path(connection.staged.name)
+        event=threading.Event();self.workspace.cancel_event=event
+        timer=threading.Timer(.05,event.set);timer.start()
+        try:
+            with self.assertRaises(KeyboardInterrupt):self.call('sleep')
+        finally:timer.join()
+        self.assertFalse(stage.exists())
+        self.assertIsNotNone(connection.process.poll())
+
+    def test_server_request_batched_with_result_receives_refusal_before_next_call(self):
+        source=SERVER.replace("  if text=='sample':", "  if text=='batched-sample':\n   outbound=[{'jsonrpc':'2.0','id':'sample-request','method':'sampling/createMessage','params':{}},{'jsonrpc':'2.0','id':msg['id'],'result':{'content':[{'type':'text','text':'batched-refusal'}]}}]\n   sys.stdout.write(''.join(json.dumps(frame)+'\\n' for frame in outbound));sys.stdout.flush()\n   reply=json.loads(sys.stdin.readline());assert reply.get('error',{}).get('code')==-32601\n   continue\n  if text=='sample':")
+        self.script.write_text(source);self.connect()
+        self.assertEqual(self.call('batched-sample')['untrusted_server_result']['content'][0]['text'],'batched-refusal')
+        self.assertEqual(self.call('after-refusal')['untrusted_server_result']['content'][0]['text'],'after-refusal')

@@ -40,11 +40,25 @@ Example (replace the paths with your own existing executable and server):
 Arguments are literal, with no shell interpolation or automatic package downloads.
 Use an absolute executable and cwd. List launch scripts/resources whose changes
 must invalidate approval. The executable and up to 16 declared files are hashed,
-including canonical path and file identity, each bounded to 64 MiB. Imported
-packages, undeclared dependencies, files subsequently opened by the server and
-remote services are **not attested** by these hashes. Hashes are rechecked before
-launch and tool calls; this is not an atomic filesystem execution guarantee
-against arbitrary concurrent replacement between checking and execution.
+including canonical path and file identity, each bounded to 64 MiB. Declared files
+are additionally limited to 64 MiB aggregate at launch. Their verified bytes are
+copied to a private temporary directory before startup; whole argv tokens naming
+a declared file (absolute or cwd-relative) are rewritten to the frozen copy.
+The directory layout is preserved so declared sibling imports and resources
+located relative to the staged script stay together. The stage is removed on
+failure, timeout, cancellation or disconnect. The original configured cwd stays
+in effect for server filesystem semantics.
+
+Only explicit whole-path argv tokens are rewritten. Paths embedded in `-c` code,
+`--option=path`, absolute paths inside scripts, or later cwd-relative reads are
+not rewritten. Declare and pass the launch script as its own argv token to use
+the frozen startup guarantee. The canonical host executable is fingerprinted
+before/after staging and after discovery but is still opened by the OS at launch;
+concurrent replacement of that executable is not atomically prevented. Imported
+packages, undeclared dependencies, indirectly reopened original paths, files
+subsequently opened by the server and remote services are **not attested**.
+Declared source changes still invalidate future tool calls; freezing startup
+bytes does not preserve permission to run after revocation or source changes.
 
 `credential_env` names explicitly select existing shell credentials, never values
 from model arguments or project dotenv. Names must contain TOKEN, KEY, SECRET,

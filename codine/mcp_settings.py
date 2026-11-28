@@ -21,24 +21,26 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
-def fingerprint(path):
+def fingerprint(path, *, capture=False):
     path=Path(path).resolve(strict=True)
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     try:
         before=os.fstat(fd)
         if not stat.S_ISREG(before.st_mode) or before.st_size>64*1024*1024:
             raise ValueError('MCP launch files must be regular files under 64 MiB.')
-        h=hashlib.sha256(); size=0
+        h=hashlib.sha256(); size=0; chunks=[]
         while True:
             chunk=os.read(fd,65536)
             if not chunk: break
             size+=len(chunk)
             if size>64*1024*1024: raise ValueError('MCP launch file exceeds hash limit.')
             h.update(chunk)
+            if capture: chunks.append(chunk)
         after=os.fstat(fd)
         version=lambda v:(v.st_dev,v.st_ino,v.st_size,v.st_mtime_ns,v.st_ctime_ns,v.st_mode)
         if version(before)!=version(after): raise ValueError('MCP launch file changed during review.')
-        return {'path':str(path),'identity':[before.st_dev,before.st_ino],'sha256':h.hexdigest()}
+        metadata={'path':str(path),'identity':[before.st_dev,before.st_ino],'sha256':h.hexdigest()}
+        return (metadata,b''.join(chunks)) if capture else metadata
     finally: os.close(fd)
 
 
