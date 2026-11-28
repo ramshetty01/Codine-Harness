@@ -79,3 +79,47 @@ class RpcProtocolTests(unittest.TestCase):
         self.writer.write(b'x'*65537+b'\n')
         self.wait(lambda:self.ui.stopped.is_set())
         self.assertTrue(self.inbox.cancel.is_set())
+
+    def test_late_approval_cannot_win_timeout_lock_race(self):
+        ready=threading.Event()
+        # Model the owner waiting to reacquire its lock after wait() expired.
+        self.ui.approval={'token':'late-race','allow':False,'ready':ready,
+                          'deadline':time.monotonic()-.01}
+        with self.assertRaisesRegex(ValueError,'expired'):
+            self.ui._accept('race','approval',{'token':'late-race','allow':True})
+        self.assertFalse(self.ui.approval['allow'])
+        self.assertFalse(ready.is_set())
+        self.ui.approval=None
+
+    def test_supplementary_unicode_truncation_respects_encoded_frame_bound(self):
+        self.ui.emit('result','😀'*10000)
+        self.wait(lambda:bool(self.messages()))
+        raw=self.output.getvalue().encode()
+        self.assertLessEqual(len(raw),65537)
+        self.assertTrue(self.messages()[0]['data']['truncated'])
+        self.assertFalse(self.ui.stopped.is_set())
+
+    def test_output_backpressure_cancels_instead_of_growing_queue(self):
+        entered=threading.Event();release=threading.Event();destination=self.output
+        class BlockedOutput:
+            def write(_,raw):
+                entered.set();release.wait(2);destination.write(raw)
+            def flush(_):pass
+        self.ui.output=BlockedOutput()
+        self.ui.emit('notice','blocked writer')
+        self.assertTrue(entered.wait(1))
+        try:
+            with self.assertRaisesRegex(RuntimeError,'not consuming'):
+                for _ in range(257):self.ui.emit('notice','bounded frame')
+            self.assertTrue(self.ui.stopped.is_set())
+            self.assertTrue(self.inbox.cancel.is_set())
+            self.assertLessEqual(self.ui.outgoing.qsize(),256)
+        finally:release.set()
+
+    def test_oversized_approval_declines_without_token_loss_or_truncated_consent(self):
+        self.assertFalse(self.ui.approve('😀'*10000))
+        self.wait(lambda:bool(self.messages()))
+        self.assertTrue(all(row.get('event')!='approval' for row in self.messages()))
+        self.assertIn('action declined',self.messages()[0]['data'])
+        self.assertIsNone(self.ui.approval)
+        self.assertFalse(self.ui._approval_pending)

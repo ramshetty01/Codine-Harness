@@ -60,11 +60,16 @@ class RpcTerminal(JsonTerminal):
     def _send(self, value):
         value = self.redactor.data(value)
         raw = json.dumps(value, ensure_ascii=True, allow_nan=False)
-        if len(raw.encode()) > FRAME_LIMIT:
+        if len(raw.encode()) + 1 > FRAME_LIMIT:
             if 'event' not in value: raise ValueError('RPC response exceeds frame limit.')
             value['data'] = {'truncated':True, 'original_bytes':len(raw.encode()),
                              'preview':str(value.get('data'))[:8000]}
             raw = json.dumps(value, ensure_ascii=True)
+            while len(raw.encode()) + 1 > FRAME_LIMIT and value['data']['preview']:
+                value['data']['preview'] = value['data']['preview'][:len(value['data']['preview'])//2]
+                raw = json.dumps(value, ensure_ascii=True)
+            if len(raw.encode()) + 1 > FRAME_LIMIT:
+                raise ValueError('RPC event metadata exceeds frame limit.')
         try:self.outgoing.put_nowait(raw+'\n')
         except queue.Full:
             self._stop()
@@ -136,7 +141,7 @@ class RpcTerminal(JsonTerminal):
                 raise ValueError('Approval requires token and boolean allow.')
             with self.lock:
                 item=self.approval
-                if item is None or item['token']!=params['token'] or item['ready'].is_set():raise ValueError('Approval expired or does not match the active request.')
+                if item is None or item['token']!=params['token'] or item['ready'].is_set() or time.monotonic()>=item['deadline']:raise ValueError('Approval expired or does not match the active request.')
                 item['allow']=params['allow'];item['ready'].set()
             self._reply(ident,{'accepted':True});return
         if params:raise ValueError('This method takes no parameters.')
@@ -198,12 +203,19 @@ class RpcTerminal(JsonTerminal):
     def approve(self, description):
         with self.lock:
             if self.stopped.is_set() or self.cancelled:return False
-            item={'token':uuid.uuid4().hex,'allow':False,'ready':threading.Event()}
+            item={'token':uuid.uuid4().hex,'allow':False,'ready':threading.Event(),
+                  'deadline':time.monotonic()+APPROVAL_TIMEOUT}
+            data={'token':item['token'],'description':safe_text(description),'timeout_seconds':APPROVAL_TIMEOUT}
+            preview=self.redactor.data({'version':1,'sequence':self.sequence+1,'event':'approval',
+                                       'request_id':self.active,'data':data})
+            if len(json.dumps(preview,ensure_ascii=True,allow_nan=False).encode())+1>FRAME_LIMIT:
+                self.emit('status','Approval exceeds the RPC frame limit; action declined. Narrow the request before retrying.')
+                return False
             self.approval=item;self._approval_pending=True
-            self.emit('approval',{'token':item['token'],'description':safe_text(description),'timeout_seconds':APPROVAL_TIMEOUT})
+            self.emit('approval',data)
         item['ready'].wait(APPROVAL_TIMEOUT)
         with self.lock:
-            allowed=item['allow'] and not self.cancelled and not self.stopped.is_set()
+            allowed=item['allow'] and not self.cancelled and not self.stopped.is_set() and time.monotonic()<item['deadline']
             self.approval=None;self._approval_pending=False
             return allowed
 

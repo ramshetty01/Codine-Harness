@@ -148,3 +148,51 @@ class SDKRPCTests(unittest.TestCase):
         outputs=[str(row['data']) for row in events if row['event']=='tool_response']
         self.assertTrue(any('rpc-mcp-result' in row for row in outputs))
         client.command('/mcp disconnect fixture')
+
+    def test_callback_exception_cancels_turn_and_approval_reentrancy_denies(self):
+        client=self.client()
+        def broken(event):
+            if event['event']=='status' and event['data']=='waiting':raise RuntimeError('callback-private-detail')
+        client.on_event=broken
+        with self.assertRaisesRegex(CodineError,'callback failed'):client.run('slow')
+        client.on_event=None
+        self.assertEqual(client.run('continue')['outcome']['outcome'],'completed')
+        # A synchronous queued command inside an approval callback would wait on
+        # itself. It must fail fast and deny, not hold the server for 60 seconds.
+        client.approve=lambda _:client.command('/save',timeout=.2)
+        started=time.monotonic()
+        client.run('write callback-denied.py')
+        self.assertLess(time.monotonic()-started,3)
+        self.assertFalse((self.project/'callback-denied.py').exists())
+        observed=[]
+        client.on_event=lambda event:observed.append(client.status()) if event['event']=='text' else None
+        client.run('normal')
+        self.assertTrue(observed)
+
+    def test_partial_write_failure_closes_transport_without_retry(self):
+        from unittest.mock import patch
+        client=self.client()
+        original=os.write
+        written=[]
+        def fail_after_prefix(fd,data):
+            if not written:
+                written.append(True)
+                return original(fd,bytes(data[:12]))
+            raise OSError('simulated pipe failure')
+        with patch('codine.sdk.os.write',side_effect=fail_after_prefix):
+            with self.assertRaises(OSError):client.status()
+        self.assertTrue(client.process.stdin.closed)
+        self.assertIn('write failed',client.failure)
+        with self.assertRaises(CodineError):client.run('must not retry')
+
+    def test_default_launcher_ignores_project_pythonpath_startup_hooks(self):
+        from unittest.mock import patch
+        marker=self.project/'STARTUP_HOOK_EXECUTED'
+        (self.project/'sitecustomize.py').write_text('from pathlib import Path\nPath('+repr(str(marker))+').touch()\n')
+        with patch.dict(os.environ,{'PYTHONPATH':str(self.project)}):
+            client=Client(self.project,provider='nvidia')
+            try:
+                self.assertIn('session',client.ready)
+                self.assertFalse(marker.exists())
+                client.status()  # Offline inspection only; no provider request.
+            finally:client.close()

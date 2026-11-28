@@ -92,8 +92,12 @@ fresh token, a redacted description and timeout. The client sends:
 {"version":1,"id":"approve-1","method":"approval","params":{"token":"TOKEN_FROM_EVENT","allow":false}}
 ```
 
-No answer within 60 seconds declines. Cancellation or disconnect also declines.
-Expired, duplicate or mismatched tokens never grant another action. The reader
+No answer within 60 seconds declines. The reader and owner both check a monotonic
+deadline, so a late reply cannot win the lock race after timeout. Cancellation or
+disconnect also declines.
+Expired, duplicate or mismatched tokens never grant another action. Approval
+descriptions that exceed the encoded frame limit decline immediately; the client
+is never asked to approve a truncated description with missing token fields. The reader
 handles approval replies and cancellation while the CLI owner thread is waiting;
 there is no competing terminal input reader.
 
@@ -112,7 +116,10 @@ queued work. There are no automatic command retries or reconnects.
   `truncated` marker and preview; the saved session/tool artifacts remain the
   authoritative full record. A stalled consumer stops the transport.
 - SDK: 32 outstanding requests, 512 pending events. It drains stderr without
-  exposing raw contents through exceptions. Transport failure closes stdin to
+  exposing raw contents through exceptions. Responses reject duplicate fields,
+  nonfinite JSON, invalid envelopes and unknown/duplicate response IDs. Partial
+  write failure closes the transport rather than appending a retry to a broken
+  frame. Transport failure closes stdin to
   request cancellation; errors never imply safe replay.
 - Only the CLI owner thread changes sessions, tools and permissions. The input
   thread queues commands, delivers a matching approval, sets cancellation, or
@@ -125,9 +132,15 @@ Supported slash commands are the explicit `COMMANDS` list in `rpc_terminal.py`.
 Interactive pickers, paste/external-editor flows, templates/draft editing and
 process restart are intentionally not wire methods. New integrations should add
 an explicit bounded method or supported command rather than drive terminal
-keystrokes. SDK callbacks run in the waiting caller thread and should return
+keystrokes. The default SDK launcher uses isolated Python mode (`-I`) and an explicit trusted
+package path, so project `PYTHONPATH`/`sitecustomize` startup hooks cannot run before
+the harness initializes. A custom `command` remains explicitly trusted executable
+configuration. SDK callbacks run in the waiting caller thread and should return
 promptly; a blocking user callback can delay that caller independently of the
 server's approval timeout. An event callback exception requests cancellation.
+Callbacks may synchronously inspect `status()` or `cancel()`. Nested `run()` or
+`command()` calls fail immediately instead of waiting on their own active turn;
+schedule them after the callback returns. A failing approval callback denies.
 
 ## Offline evidence
 

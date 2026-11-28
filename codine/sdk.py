@@ -19,6 +19,14 @@ API_VERSION = 1
 FRAME_LIMIT = 65536
 
 
+def unique_object(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result: raise ValueError('Duplicate RPC response field.')
+        result[key]=value
+    return result
+
+
 class CodineError(RuntimeError):
     pass
 
@@ -31,6 +39,10 @@ class Client:
         self.write_lock = threading.Lock()
         self.callback_lock = threading.RLock()
         self.pending = {}
+        self.sent_ids = set()
+        self.response_ids = set()
+        self.event_sequence = 0
+        self.callback_state = threading.local()
         self.notifications = queue.Queue(maxsize=512)
         self.ready = None
         self.failure = None
@@ -40,7 +52,7 @@ class Client:
             # Explicit trusted package path also supports a source checkout client
             # launched against another project directory, without project PYTHONPATH.
             source = 'import sys; sys.path.insert(0, '+repr(str(Path(__file__).resolve().parent.parent))+'); from codine.launcher import main; raise SystemExit(main())'
-            command = [sys.executable, '-c', source]
+            command = [sys.executable, '-I', '-c', source]
         if not isinstance(command,(list,tuple)) or not command or any(not isinstance(v,str) for v in command):
             raise ValueError('command must be a trusted executable argument list.')
         argv=[*command,'--rpc','--project',str(Path(project).resolve())]
@@ -66,10 +78,11 @@ class Client:
     def _fail(self, message):
         with self.lock:
             self.failure=self.failure or message
+            # Publish failure to waiters only after EOF has requested shutdown.
+            # Never leave a disconnected client driving an unowned turn.
+            try:self.process.stdin.close()
+            except OSError:pass
             for item in self.pending.values():item['event'].set()
-        # EOF asks the server to stop; never leave a disconnected client driving turns.
-        try:self.process.stdin.close()
-        except OSError:pass
 
     def _stderr(self):
         while True:
@@ -84,15 +97,33 @@ class Client:
                 raw=self.process.stdout.readline(FRAME_LIMIT+1)
                 if not raw:break
                 if len(raw)>FRAME_LIMIT or not raw.endswith(b'\n'):raise ValueError('Invalid RPC response frame size.')
-                value=json.loads(raw)
+                value=json.loads(raw,object_pairs_hook=unique_object,
+                    parse_constant=lambda _:(_ for _ in ()).throw(ValueError('Nonfinite RPC response')))
                 if not isinstance(value,dict) or type(value.get('version')) is not int or value['version']!=API_VERSION:
                     raise ValueError('Unsupported RPC response.')
                 if 'event' in value:
-                    if value['event']=='ready':self.ready=value['data']
+                    if (set(value)!={'version','sequence','event','request_id','data'} or
+                            type(value['sequence']) is not int or value['sequence']<=self.event_sequence or
+                            not isinstance(value['event'],str) or not 1<=len(value['event'])<=80 or
+                            (value['request_id'] is not None and not isinstance(value['request_id'],str))):
+                        raise ValueError('Invalid RPC event envelope.')
+                    self.event_sequence=value['sequence']
+                    if value['event']=='ready':
+                        if self.ready is not None or not isinstance(value['data'],dict) or type(value['data'].get('protocol')) is not int or value['data'].get('protocol')!=API_VERSION:
+                            raise ValueError('Invalid or repeated RPC ready event.')
+                        self.ready=value['data']
                     try:self.notifications.put_nowait(value)
                     except queue.Full:raise ValueError('Client event backlog exceeded 512 messages.') from None
                 elif 'id' in value:
+                    if (not isinstance(value['id'],str) or ('result' in value)==('error' in value) or
+                            set(value)!={'version','id', 'error' if 'error' in value else 'result'} or
+                            ('error' in value and (not isinstance(value['error'],dict) or
+                              set(value['error'])!={'message'} or not isinstance(value['error']['message'],str)))):
+                        raise ValueError('Invalid RPC response envelope.')
                     with self.lock:
+                        if value['id'] not in self.sent_ids or value['id'] in self.response_ids:
+                            raise ValueError('Unknown or duplicate RPC response ID.')
+                        self.response_ids.add(value['id'])
                         item=self.pending.get(value['id'])
                         if item is not None:item['response']=value;item['event'].set()
                 else:raise ValueError('Unrecognized RPC message.')
@@ -117,7 +148,16 @@ class Client:
                         try:count=os.write(self.process.stdin.fileno(),view)
                         except BlockingIOError:continue
                         view=view[count:]
+        except (OSError,ValueError,TimeoutError):
+            self._fail('RPC write failed; delivery may be incomplete. Inspect session before retrying.')
+            raise
         finally:self.write_lock.release()
+
+    def _callback(self, callback, argument):
+        previous=getattr(self.callback_state,'active',False)
+        self.callback_state.active=True
+        try:return callback(argument)
+        finally:self.callback_state.active=previous
 
     def _drain(self):
         with self.callback_lock:
@@ -125,7 +165,7 @@ class Client:
                 try:event=self.notifications.get_nowait()
                 except queue.Empty:return
                 if self.on_event is not None:
-                    try:self.on_event(event)
+                    try:self._callback(self.on_event,event)
                     except Exception:
                         try:self.cancel()
                         except (OSError,RuntimeError,TimeoutError):pass
@@ -134,20 +174,24 @@ class Client:
                     # An absent or failing approval callback denies; it never grants implicitly.
                     allow=False
                     if self.approve is not None:
-                        try:allow=self.approve(event['data']['description']) is True
+                        try:allow=self._callback(self.approve,event['data']['description']) is True
                         except Exception:allow=False
                     self.request('approval',{'token':event['data']['token'],'allow':allow},timeout=10,_events=False)
 
     def request(self, method, params=None, *, timeout=180, _events=True):
         if self.closed:raise CodineError('Client is closed.')
+        if _events and getattr(self.callback_state,'active',False):
+            raise CodineError('Callbacks may call status/cancel; schedule turns or commands after the callback returns.')
         ident=uuid.uuid4().hex
         item={'event':threading.Event(),'response':None}
         with self.lock:
             if self.failure:raise CodineError(self.failure)
             if len(self.pending)>=32:raise CodineError('Too many concurrent RPC requests.')
+            if len(self.sent_ids)>=4096:raise CodineError('RPC request limit reached; reconnect with the saved session.')
             self.pending[ident]=item
+            self.sent_ids.add(ident)
         try:
-            self._send({'version':API_VERSION,'id':ident,'method':method,'params':params or {}})
+            self._send({'version':API_VERSION,'id':ident,'method':method,'params':{} if params is None else params})
             deadline=time.monotonic()+timeout
             while not item['event'].wait(.01):
                 if _events:self._drain()
