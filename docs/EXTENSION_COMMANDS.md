@@ -71,9 +71,13 @@ clear unavailable message.
 Targeted frontend checks:
 
 ```bash
-python -m unittest tests.test_extension_commands tests.test_extension_trust -v
+python -m unittest tests.test_extension_commands tests.test_extension_trust tests.test_extension_lifecycle -v
 ```
 
-These tests exercise real manifest discovery/policy checks and fake runtime
-command dispatch, including failed reload propagation. They do not substitute
-for worker/runtime tests of executing, replacing and unloading an extension.
+The frontend tests exercise real manifest discovery/policy checks and fake
+runtime dispatch. The lifecycle tests additionally start the real supervised
+worker: load an explicitly trusted fixture, invoke its tool/command/panel, reject
+untrusted or broken replacements while retaining the previous callable tool,
+reload a newly trusted version, and unload its registrations. They also verify
+busy-prompt and plan-mode restrictions. All fixtures are temporary; no model API
+is called.
