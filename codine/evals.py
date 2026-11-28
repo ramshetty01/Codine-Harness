@@ -17,6 +17,8 @@ from .agent import Agent, SYSTEM
 from .config import Config, Redactor
 from .paths import eval_resource, STATE_ROOT
 from .provenance import evaluation_manifest
+from .eval_attempts import AttemptReport
+from .eval_metrics import summarize_results
 from .sessions import Session, SessionStore, validate_messages
 from .tools import build_registry
 from .workspace import Workspace
@@ -151,7 +153,7 @@ def run_case(task, executor=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', required=True, help='Required: only scripted/offline exercises exist in this release')
-    parser.add_argument('--report', default='.codine/evals/offline.json')
+    parser.add_argument('--report', help='New report path; default creates a unique retained attempt')
     parser.add_argument('--split', choices=('all', 'development', 'holdout'), default='all')
     parser.add_argument('--executor', choices=('local', 'docker'), default='local', help='local is trusted-fixture-only; docker restricts candidate execution')
     parser.add_argument('--image', default='python:3.12-slim', help='Locally installed Docker image; never pulled automatically')
@@ -170,13 +172,23 @@ def main(argv=None):
     if not selected:
         parser.error('No tasks match the selected suite and split.')
     provenance = evaluation_manifest(selected, mode='offline-scripted', image=executor.image if executor else None, config=Config(Path.cwd()))
-    results = [run_case(task, executor) for task in selected]
-    report = {'version': 2, 'provenance': provenance, 'suite': args.suite, 'mode': 'offline-scripted', 'executor': args.executor, 'image': executor.image if executor else None, 'inference_requests': 0, 'inference_cost_usd': '0',
-              'meaning': 'Harness/grader verification only; NOT model solve rate.',
-              'passed': sum(row['passed'] for row in results), 'total': len(results), 'results': results}
-    path = Path(args.report)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2)+'\n')
+    writer=AttemptReport(args.report,prefix='offline')
+    results=[]
+    report={'version':3,'provenance':provenance,'suite':args.suite,'mode':'offline-scripted',
+            'executor':args.executor,'image':executor.image if executor else None,
+            'inference_requests':0,'inference_cost_usd':'0','selected_tasks':[task['id'] for task in selected],
+            'meaning':'Harness/grader verification only; NOT model solve rate.','results':results}
+    def save(status):
+        report.update(passed=sum(row['passed'] for row in results),total=len(selected))
+        report['metrics']=summarize_results(results,report['selected_tasks'],'0')
+        writer.save(report,status=status)
+    save('running')
+    try:
+        for task in selected:
+            results.append(run_case(task,executor));save('running')
+    except BaseException:
+        save('aborted');raise
+    save('completed');path=writer.path
     print(f"Offline exercises: {report['passed']}/{report['total']}. Inference calls: 0. Report: {path}")
     print(report['meaning'])
     return 0 if report['passed'] == report['total'] else 1

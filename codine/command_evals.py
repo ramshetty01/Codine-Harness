@@ -6,6 +6,9 @@ from pathlib import Path
 import re
 import tempfile
 import uuid
+import time
+from .eval_attempts import AttemptReport
+from .eval_metrics import summarize_results
 
 from .paths import eval_resource
 from .provenance import evaluation_manifest
@@ -107,22 +110,24 @@ def main(argv=None):
               'pack': args.pack, 'upstream': pack['provenance'],
               'provenance': evaluation_manifest(identities, mode='offline-reference-repair', image=executor.image),
               'results': []}
-    directory = Path(args.report_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / (uuid.uuid4().hex + '.json')
-    def save():
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(report, indent=2) + '\n')
-        temporary.replace(path)
+    writer=AttemptReport(prefix='commands',directory=args.report_dir);path=writer.path
+    report['selected_tasks']=[task['id'] for task in selected]
+    report['inference_cost_usd']='0'
+    def save(status='running'):
+        report['metrics']=summarize_results(report['results'],report['selected_tasks'],'0')
+        writer.save(report,status=status)
     save()
     for task in selected:
+        started=time.monotonic()
         try:
             result = run_task(pack, task, executor)
         except Exception as error:
             result = {'task': task['id'], 'passed': False, 'error': str(error)}
+        result.update(seconds=time.monotonic()-started,interventions=0)
         report['results'].append(result)
         save()
         print(f"{task['id']}: {'PASS' if result['passed'] else 'FAIL'}", flush=True)
+    save('completed')
     print(f'Zero inference calls. Report: {path}')
     return 0 if all(row['passed'] for row in report['results']) else 1
 

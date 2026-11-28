@@ -13,6 +13,8 @@ from .budget import Budget, BudgetError, money
 from .config import Config, Redactor
 from .paths import eval_resource, STATE_ROOT
 from .provenance import evaluation_manifest
+from .eval_attempts import AttemptReport
+import copy
 from .eval_budget import EvaluationBudget
 from .eval_metrics import summarize_results
 from .evals import grade, task_cases
@@ -58,7 +60,7 @@ class GuardedProvider:
             self.durations.append(round(time.monotonic() - started, 3))
 
 
-def evaluate_task(task, base_config, executor, shared, run_budget):
+def evaluate_task(task, base_config, executor, shared, run_budget, request_profile=None):
     public, hidden = task_cases(task)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='codine-live-eval-') as directory:
@@ -73,7 +75,9 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
         config = replace(base_config, project=root)
         redactor = Redactor([config.api_key])
         store = SessionStore(root, redactor)
-        transport = OpenRouterProvider(config)
+        transport = OpenRouterProvider(config,
+            capability_record=(lambda model:copy.deepcopy(request_profile['record'])) if request_profile is not None else None,
+            capability_declarations=(lambda project:copy.deepcopy(request_profile['declarations'])) if request_profile is not None else None)
         provider = GuardedProvider(transport, shared, run_budget, config.api_key)
         events = []
         session = Session.create(root, config.model, SYSTEM, provider='openrouter')
@@ -108,7 +112,7 @@ def evaluate_task(task, base_config, executor, shared, run_budget):
             return {'task': task['id'], 'split': task['split'], 'outcome': outcome,
                     'passed': outcome == 'completed' and result['passed'], 'grade': result,
                     'public_cases': len(public), 'hidden_cases': len(hidden),
-                    'error': error, 'requests': provider.calls, 'request_seconds': provider.durations,
+                    'error': error, 'interventions':0, 'requests': provider.calls, 'request_seconds': provider.durations,
                     'cost_usd': session.billing.get('spent', '0'), 'tool_failures': tool_errors,
                     'seconds': round(time.monotonic() - started, 3),
                     'messages': redactor.data(session.messages),
@@ -126,7 +130,7 @@ def main(argv=None):
     parser.add_argument('--suite', choices=('functions', 'repository'), default='functions')
     parser.add_argument('--task', action='append', help='Exact task ID; repeat to select several')
     parser.add_argument('--run-budget', default='0.25', help='USD cap for this invocation (0.05–0.75)')
-    parser.add_argument('--report', default='.codine/evals/live.json')
+    parser.add_argument('--report', help='New report path; default creates a unique retained attempt')
     parser.add_argument('--image', default='python:3.12-slim')
     args = parser.parse_args(argv)
     if (args.reconcile_cost is None) != (args.reconcile_request is None):
@@ -160,45 +164,56 @@ def main(argv=None):
     if not selected or (args.task and set(args.task) - {task['id'] for task in selected}):
         parser.error('Unknown or empty task selection.')
     executor = DockerSandbox(args.image)
-    shared = EvaluationBudget(STATE_ROOT / 'evals/budget.json', cfg.api_key)
     run_budget = Budget.create(str(cap), '0.05')
-    provenance = evaluation_manifest(selected, mode='live', image=executor.image, config=cfg)
+    from .capabilities import declarations,cached_record,plan_request
+    request_profile=copy.deepcopy({'declarations':declarations(cfg.project),'record':cached_record(cfg.model)})
+    planned=plan_request(cfg,cfg.model,[{'type':'function','function':{'name':'evaluation_tool','parameters':{'type':'object'}}}],
+        record=request_profile['record'],declared=request_profile['declarations'].get('openrouter',{}).get(cfg.model)).kwargs
+    request_settings={key:value for key,value in planned.items() if key!='tools'}
+    provenance = evaluation_manifest(selected, mode='live', image=executor.image, config=cfg,
+        request_settings=request_settings,execution_settings={'timeout':executor.timeout,'output_limit':executor.output_limit})
     report = {'version': 2, 'provenance': provenance, 'mode': 'live', 'model': cfg.model, 'suite': args.suite,
               'image': executor.image, 'catalog_pricing': row, 'run_limit_usd': str(cap),
               'selected_tasks': [task['id'] for task in selected], 'results': []}
-    path = Path(args.report)
-    def save_report():
-        report.update(cost_usd=run_budget.state['spent'], pending_usd=shared.ledger.state['pending'],
+    writer=AttemptReport(args.report,prefix="live");path=writer.path
+    shared = EvaluationBudget(STATE_ROOT / 'evals/budget.json', cfg.api_key)
+    def save_report(status="running"):
+        report.update(cost_usd=run_budget.state['spent'], blocked=shared.ledger.state['blocked'] or run_budget.state['blocked'], pending_usd=shared.ledger.state['pending'],
                       pending_request=shared.ledger.state['reservation'],
                       shared_cost_usd=shared.ledger.state['spent'],
-                      passed=sum(r['passed'] for r in report['results']), total=len(report['results']))
+                      passed=sum(r['passed'] for r in report['results']), total=len(selected),attempted=len(report['results']))
         durations = sorted(r['seconds'] for r in report['results'])
         report['median_task_seconds'] = statistics.median(durations) if durations else None
         report['p95_task_seconds'] = durations[math.ceil(len(durations) * .95) - 1] if durations else None
-        report['cost_per_solved_usd'] = str(money(report['cost_usd']) / report['passed']) if report['passed'] else None
+        report['cost_per_solved_usd'] = str(money(report['cost_usd']) / report['passed']) if report['passed'] and report['pending_usd'] is None and not report['blocked'] else None
         report['requests'] = sum(r['requests'] for r in report['results'])
+        report['request_count_complete']=report.get('active_task') is None
         report['tool_failures'] = sum(r['tool_failures'] for r in report['results'])
-        report['metrics'] = summarize_results(report['results'], report['selected_tasks'], report['cost_usd'], report['pending_usd'])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(report, indent=2) + '\n')
-        temporary.replace(path)
+        report['metrics'] = summarize_results(report['results'], report['selected_tasks'], report['cost_usd'], report['pending_usd'],blocked=bool(report['blocked']))
+        writer.save(report,status=status)
+    finished=False
     try:
+        save_report()
         for task in selected:
             if (shared.ledger.state['pending'] is not None or shared.ledger.state['blocked'] or
                     money(run_budget.state['spent']) + money('0.05') > cap):
+                report['stop_reason']='pending_charge' if shared.ledger.state['pending'] is not None else 'budget_limit'
                 break
             print(f"Evaluating {task['id']} with {cfg.model} …", flush=True)
-            result = evaluate_task(task, cfg, executor, shared, run_budget)
+            report['active_task']=task['id'];save_report()
+            result = evaluate_task(task, cfg, executor, shared, run_budget,request_profile)
             report['results'].append(result)
+            report['active_task']=None
             save_report()
             print(f"  {'PASS' if result['passed'] else 'FAIL'} · {result['requests']} requests · {result['seconds']}s · run cost ${report['cost_usd']}", flush=True)
             if result['error']:
+                report['stop_reason']='task_error'
                 print('  ' + result['error'], flush=True)
                 break
+        finished=len(report['results'])==len(selected)
     finally:
-        save_report()
-        shared.close()
+        try:save_report('completed' if finished else 'aborted')
+        finally:shared.close()
     print(f"Live result: {report['passed']}/{report['total']}; ${report['cost_usd']}. Report: {path}")
     return 0 if report['passed'] == len(selected) else 1
 
