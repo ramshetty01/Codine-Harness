@@ -80,7 +80,7 @@ class TerminalUITests(unittest.TestCase):
         with patch('codine.terminal.shutil.get_terminal_size', return_value=os.terminal_size((38, 24))):
             text = fragment_list_to_text(terminal.toolbar())
         self.assertIn('PLAN · read only', text)
-        self.assertLessEqual(get_cwidth(text), 36)
+        self.assertTrue(all(get_cwidth(line) <= 36 for line in text.splitlines()))
 
     def test_narrow_panel_wraps_without_losing_text(self):
         terminal = Terminal(Redactor(), interactive=False)

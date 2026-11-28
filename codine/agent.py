@@ -181,9 +181,15 @@ class Agent:
                 if isinstance(getattr(plan, 'note', None), str):
                     self.emit('status', plan.note)
             completion = lambda callback: self.provider.complete(messages, schemas, self.session.model, callback)
+        from .status_view import cache_context
+        cache_context(self, messages, schemas)
         transport = completion
         def completion(callback):
-            result = transport(callback)
+            self._request_active = True
+            try:
+                result = transport(callback)
+            finally:
+                self._request_active = False
             _, _, usage = result
             from .usage import record as record_usage
             record_usage(self.session.usage_details, usage)

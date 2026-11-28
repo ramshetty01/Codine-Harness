@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/status': 'Inspect phase, queue, context estimate and local cost',
     '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',
     '/drop': 'Remove a queued item', '/next': 'Run the next queued item', '/stop': 'Cancel the busy turn',
     '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
@@ -191,21 +192,14 @@ class Terminal:
         self.line('  / commands   ·   Alt+Enter newline   ·   Ctrl+D exit', 'muted')
 
     def toolbar(self):
+        from .status_view import lines
         state = self.state()
         if not isinstance(state, dict):
             return self.clean(state)
-        mode = {'ask': 'ask before edits', 'plan': 'PLAN · read only', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
-        # Mode is first so narrow terminals never hide the execution policy.
-        execution = 'Docker' if state.get('executor') == 'docker' else 'host'
-        busy = ''
-        if self.busy_reader:
-            inbox = self.busy_reader.inbox
-            busy = ('STOPPING' if inbox.cancel.is_set() else 'BUSY') + f' · {len(inbox.list())} queued · '
-        text = f'  {busy}{execution} · {mode}  ·  {state.get("tokens", 0):,} tokens'
-        model = state.get('model', '')
-        if model:
-            text += '  ·  ' + model
-        return FormattedText([('class:muted', clip(self.clean(text), self.width))])
+        # Policy remains first; separate rows keep costs/context from being
+        # confused with cumulative usage. /status exposes unclipped details.
+        text = '\n'.join(clip(self.clean(row), self.width) for row in lines(state, compact=True))
+        return FormattedText([('class:muted', text)])
 
     def submit_command(self, text):
         if len(text) > 16000:
@@ -251,10 +245,14 @@ class Terminal:
             raise
 
     def approve(self, description):
-        if self.busy_reader:
-            with self.busy_reader.approval():
-                return self._approve(description)
-        return self._approve(description)
+        self._approval_pending = True
+        try:
+            if self.busy_reader:
+                with self.busy_reader.approval():
+                    return self._approve(description)
+            return self._approve(description)
+        finally:
+            self._approval_pending = False
 
     def _approve(self, description):
         self.emit('end_stream', '')

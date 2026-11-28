@@ -140,6 +140,9 @@ def command(text, agent, workspace, ui):
         guidance, paths = load_instructions(workspace.root, authorize=lambda path:
             workspace._authorize_read(workspace.resolve(path.relative_to(workspace.root).as_posix())))
         ui.write(guidance or 'No permitted root AGENTS.md or CODINE.md loaded. Nested instructions are not auto-loaded.')
+    elif name == '/status':
+        from .status_view import snapshot, lines
+        ui.write('\n'.join(lines(snapshot(agent, workspace, ui, session.execution.get('executor', 'host')))))
     elif name == '/usage':
         from .usage import describe
         ui.write(describe(session.usage_details))
@@ -478,7 +481,8 @@ def main(argv=None):
             agent.git_inspector.capture('first_inspection' if resume else 'session_start')
         except GitError as error:
             ui.write(str(error))
-        ui.state = lambda: {'project': workspace.root.name, 'mode': workspace.mode, 'tokens': agent.session.usage['total'], 'model': agent.session.model, 'executor': executor_name}
+        from .status_view import snapshot
+        ui.state = lambda: snapshot(agent, workspace, ui, executor_name)
         ui.welcome(config.project, session.id, session.model)
         ui.write(execution_status(workspace))
         if command_policy.rules or command_policy.file_rules:
@@ -536,6 +540,8 @@ def main(argv=None):
             if not one_shot.strip():
                 return 0
             if one_shot.strip().startswith('/'):
+                if one_shot.strip().split()[0] == '/status':
+                    active_inbox()
                 command(one_shot.strip(), agent, workspace, ui)
                 agent.finish('command')
                 return 0
@@ -545,6 +551,7 @@ def main(argv=None):
             ui.write(f'{len(recovered)} queued inputs recovered. Review /queue; /next sends the next one. Nothing was replayed.')
         while True:
             try:
+                active_inbox()  # Refresh resumed queue on the main thread, never in toolbar.
                 text = ui.prompt().strip()
                 if not text:
                     continue
