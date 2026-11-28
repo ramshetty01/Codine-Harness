@@ -58,7 +58,19 @@ def snapshot_extension(workspace, manifest_path):
     target = workspace.resolve(name)
     workspace._authorize_read(target)
     raw, identity = read_bytes(workspace.root, name, min(LIMIT, 65536))
-    manifest = json.loads(raw)
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('Duplicate extension manifest field.')
+            value[key] = item
+        return value
+    def invalid_constant(_):
+        raise ValueError('Extension manifest requires finite JSON values.')
+    try:
+        manifest = json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+    except (UnicodeError, RecursionError) as error:
+        raise ValueError('Extension manifest must be bounded UTF-8 JSON without excessive nesting.') from error
     if (not isinstance(manifest, dict) or set(manifest) != {'version', 'name', 'entrypoint', 'files', 'capabilities'} or
             type(manifest['version']) is not int or manifest['version'] != 1):
         raise ValueError('Expected extension manifest version 1 with name, entrypoint, files and capabilities.')

@@ -178,3 +178,34 @@ class ExtensionTrustTests(unittest.TestCase):
             with self.assertRaises(OSError): self.store.revoke(snapshot['digest'])
         self.assertTrue(self.store.trusted(snapshot))
         self.assertFalse(list(self.store.root.glob('pending-*')))
+
+    def test_manifest_duplicate_fields_and_excessive_nesting_fail_as_value_errors(self):
+        path = self.package/'extension.json'
+        path.write_text(json.dumps(self.manifest)[:-1] + ', "capabilities": []}')
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            self.review()
+        path.write_text('[' * 2000 + '0' + ']' * 2000)
+        with self.assertRaises(ValueError):
+            self.review()
+        # Decoder recursion limits differ between supported Python versions.
+        with patch('codine.extension_manifest.json.loads', side_effect=RecursionError):
+            with self.assertRaisesRegex(ValueError, 'nesting'):
+                self.review()
+        path.write_text('{"version": NaN}')
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            self.review()
+
+    def test_trusted_snapshot_remains_exact_bytes_without_source_reread(self):
+        snapshot = self.review()
+        self.store.allow(self.ws, snapshot['digest'], lambda _:True)
+        original = {row['path']: base64.b64decode(row['content_base64']) for row in snapshot['files']}
+        (self.package/'main.py').write_text('print("UNAPPROVED SOURCE")')
+        # Trust is about the returned bytes, not a permission to reopen current paths.
+        with patch('codine.extension_trust.snapshot_extension', side_effect=AssertionError('unexpected source reread')):
+            self.assertTrue(self.store.trusted(snapshot))
+        self.assertIn(b'MUST NEVER EXECUTE', original['main.py'])
+        self.assertNotIn(b'UNAPPROVED SOURCE', original['main.py'])
+        self.assertFalse(self.store.trusted(self.review()))
+        snapshot['files'][0]['content_base64'] = base64.b64encode(b'tampered').decode()
+        with self.assertRaisesRegex(ValueError, 'digest mismatch'):
+            self.store.trusted(snapshot)
