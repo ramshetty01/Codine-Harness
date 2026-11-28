@@ -32,6 +32,7 @@ class Workspace:
         self.app_root = Path(app_root).resolve() if app_root else None
         self.read_versions = {}
         self.notebook_reads = {}
+        self.skill_reads = {}
         self.read_ranges = {}
         self.lifecycle_versions = {}
         self.mode = "ask"
@@ -39,9 +40,10 @@ class Workspace:
         from .paths import STATE_ROOT
         from .capabilities import USER_CAPABILITIES
         from .prompt_templates import USER_TEMPLATES
+        from .skills import USER_SKILLS
         from .instructions import USER_INSTRUCTIONS
         from .extension_trust import TRUST_ROOT
-        self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), TRUST_ROOT.resolve()}
+        self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), USER_SKILLS.resolve(), TRUST_ROOT.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
         self.protected_paths = {USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
@@ -413,6 +415,7 @@ class Workspace:
         self.change_group_id = None
         self.read_versions.clear()
         self.notebook_reads.clear()
+        self.skill_reads.clear()
         self.read_ranges.clear()
         return {'status': 'undone', 'path': record['path'], 'change': record['id']}
 

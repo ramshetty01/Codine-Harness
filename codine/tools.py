@@ -299,4 +299,6 @@ def build_registry(workspace, request_restart):
     register_check_tools(registry, workspace)
     from .symbol_navigation import register_symbol_tool
     register_symbol_tool(registry, workspace)
+    from .skills import register_skill_tools
+    register_skill_tools(registry, workspace)
     return registry

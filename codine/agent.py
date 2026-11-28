@@ -114,6 +114,8 @@ class Agent:
         try:
             if getattr(self, 'instruction_manager', None):
                 self.instruction_manager.reset()
+            if getattr(self, 'skill_manager', None):
+                self.skill_manager.discover()
             if getattr(self, 'on_turn_start', None):
                 self.on_turn_start(self.session.last_run['id'])
             return self.finish(self._run_turn(text, queued_item=queued_item) if queued_item else self._run_turn(text))
@@ -162,6 +164,8 @@ class Agent:
         memory = getattr(self, 'project_memory', None)
         if memory:
             guidance += memory.context()
+        if getattr(self, 'skill_manager', None):
+            guidance += self.skill_manager.context()
         return guidance, paths
 
     def configure_shared_budget(self, path, read_metadata=None):

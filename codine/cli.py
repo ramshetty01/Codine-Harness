@@ -39,6 +39,8 @@ HELP = '''Commands
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /trust                Review, allow, list or revoke executable extension snapshots
   /memory ACTION        Review proposed/approved project facts; list/show/add/approve/edit/delete
+  /skills               Discover skill descriptions without loading bodies
+  /skill NAME           Load a scoped skill as non-executable instruction data
   /templates            List permitted reusable prompt templates
   /template NAME JSON   Preview literal expansion into an unsent draft
   /editor               Edit an unsent draft in your configured external editor
@@ -208,6 +210,11 @@ def command(text, agent, workspace, ui):
     elif name == '/memory':
         from .project_memory import command as memory_command
         memory_command(argument, agent, workspace, ui)
+    elif name in ('/skills', '/skill'):
+        if name == '/skills':
+            ui.write(json.dumps(workspace.skills.discover(), ensure_ascii=False, indent=2))
+        else:
+            ui.write(json.dumps(workspace.skills.load(argument, activate=True), ensure_ascii=False, indent=2))
     elif name in ('/templates', '/template'):
         from .prompt_templates import command as template_command
         template_command(name[1:], argument, agent, workspace, ui)
@@ -290,7 +297,7 @@ def command(text, agent, workspace, ui):
         workspace.change_group_id = None
         if getattr(agent, 'instruction_manager', None): agent.instruction_manager.reset()
         workspace.read_versions.clear()
-        getattr(workspace, 'notebook_reads', {}).clear()
+        getattr(workspace, 'notebook_reads', {}).clear(); getattr(workspace, 'skill_reads', {}).clear()
         workspace.read_ranges.clear()
         if hasattr(workspace, "project_checks"):
             workspace.project_checks.candidates.clear()
@@ -305,6 +312,7 @@ def command(text, agent, workspace, ui):
         agent.restart_requested = False
         ui.write('Active session: ' + replacement.id)
     elif name == '/clear':
+        getattr(workspace, 'skill_reads', {}).clear()
         session.context_start = len(session.messages)
         agent.save()
         ui.write('Active context cleared. The full session archive remains on disk.')
@@ -525,6 +533,7 @@ def main(argv=None):
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
         agent.execution_credentials = execution_credentials
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
+        agent.skill_manager = workspace.skills
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)
         from .project_memory import ProjectMemory, register_memory_tool

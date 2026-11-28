@@ -17,6 +17,7 @@ from prompt_toolkit.utils import get_cwidth
 COMMANDS = {
     '/trust': 'Review, allow, list or revoke exact executable extension snapshots',
     '/memory': 'Review, approve, edit or delete project facts',
+    '/skills': 'Discover skill descriptions', '/skill': 'Load a scoped instruction skill',
     '/settings': 'Show redacted effective settings and their sources',
     '/status': 'Inspect phase, queue, context estimate and local cost',
     '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',

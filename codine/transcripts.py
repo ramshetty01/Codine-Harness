@@ -153,7 +153,7 @@ def command(kind, argument, agent, workspace, ui, system):
             workspace.change_group_id = None
             if getattr(agent, 'instruction_manager', None): agent.instruction_manager.reset()
             workspace.read_versions.clear()
-            getattr(workspace, 'notebook_reads', {}).clear()
+            getattr(workspace, 'notebook_reads', {}).clear(); getattr(workspace, 'skill_reads', {}).clear()
             workspace.read_ranges.clear()
             workspace.lifecycle_versions.clear()
             agent.restart_requested = False
