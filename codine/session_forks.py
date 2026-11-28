@@ -46,7 +46,7 @@ def settled_shared_budget(agent):
     if agent.session.provider != 'openrouter':
         yield
         return
-    from .shared_budget import SharedBudget
+    from .shared_budget import SharedBudget, session_owner
     path = getattr(agent, 'shared_budget_path', None)
     if path is None:
         raise BudgetError('OpenRouter forks require the shared spending ledger; local-only budgets cannot fork.')
@@ -55,7 +55,8 @@ def settled_shared_budget(agent):
     try:
         lock = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
-        if path.exists() or path.is_symlink() or money(agent.session.billing.get('spent', '0')):
+        if (path.exists() or path.is_symlink() or money(agent.session.billing.get('spent', '0')) or
+                agent.session.billing.get('shared_request') or agent.session.billing.get('shared_ledger')):
             raise BudgetError('Shared spending state is missing its lock; refusing to fork.')
         # Before any inference there is no allowance state to modify. The normal
         # request path will initialize the same configured shared path later.
@@ -70,7 +71,8 @@ def settled_shared_budget(agent):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         except FileNotFoundError:
-            if money(agent.session.billing.get('spent', '0')):
+            if (money(agent.session.billing.get('spent', '0')) or
+                    agent.session.billing.get('shared_request') or agent.session.billing.get('shared_ledger')):
                 raise BudgetError('Shared spending history is missing; refusing to fork.')
             yield
             return
@@ -89,6 +91,17 @@ def settled_shared_budget(agent):
             raise BudgetError('Shared spending key identity differs; refusing to fork.')
         if state['pending'] is not None or state['blocked'] or state.get('reservation') is not None:
             raise BudgetError('Resolve pending or blocked shared spending before forking.')
+        request = agent.session.billing.get('shared_request')
+        if request is not None:
+            if not isinstance(request, str) or not re.fullmatch(r'[a-f0-9]{32}', request):
+                raise BudgetError('Invalid shared request reference; refusing to fork.')
+            if agent.session.billing.get('shared_ledger') != state['ledger_id']:
+                raise BudgetError('Session references another shared spending ledger; refusing to fork.')
+            checked.owner = session_owner(agent.session)
+            record = checked.record(request)
+            if record['phase'] != 'settled':
+                raise BudgetError('Resolve unsettled session request ownership before forking.')
+
         yield
     finally:
         os.close(lock)
@@ -100,11 +113,13 @@ def require_idle(agent, workspace):
         raise ValueError('Session/provider mismatch; select the correct provider before forking.')
     if getattr(agent, '_in_turn', False) or session.pending or session.last_run.get('outcome') == 'running':
         raise ValueError('Finish or recover the active turn/tool journal before forking.')
-    if session.billing.get('pending') is not None or session.billing.get('blocked') or session.billing.get('shared_request'):
+    if session.billing.get('pending') is not None or session.billing.get('blocked') or (session.provider != 'openrouter' and session.billing.get('shared_request')):
         raise BudgetError('Resolve pending or blocked session spending before forking.')
     inbox = getattr(agent, 'inbox', None)
     if inbox:
-        inbox.check_cancel()
+        # A recovered turn's cancellation flag is not new pending work. Persisted
+        # queue failures still block; explicit idle forking need not run a model first.
+        if inbox.failure: inbox.check_cancel()
         if inbox.list():
             raise ValueError('Run or drop queued input before forking; queued work is never copied.')
     jobs = getattr(workspace, 'jobs', None)

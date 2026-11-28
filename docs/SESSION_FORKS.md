@@ -56,7 +56,7 @@ the source session/project rather than linking unrelated project trees.
 Finish or recover in-flight turns and pending tool journals first. Run or drop
 queued/deferred input; forks do not duplicate or silently abandon it. Finish or
 cancel active background jobs and resolve uncertain cleanup. Pending/blocked
-local spending, outstanding shared-request ownership, a busy shared ledger or an
+local spending, unverifiable or unsettled shared-request ownership, a busy shared ledger or an
 unsettled global shared reservation also blocks forking. These checks do not
 reconcile unknown actions or charges on the user's behalf.
 
@@ -119,3 +119,10 @@ missing/bounded tree nodes, depth limits and explicit project migration. Its rea
 PTY test uses a fake provider to fork, continue the child, inspect ancestry and
 return to the parent, proving that navigation sends no extra model requests.
 No live API calls or actual charges are involved.
+
+A successful OpenRouter request retains a settled receipt reference in its source
+session. Forking verifies that receipt belongs to the parent in the same shared
+ledger, then removes request ownership from the child without changing the
+receipt, ledger or inherited spend. A recovered turn's cancellation flag alone
+does not prevent an explicit idle fork; queue persistence failures and queued
+work still block it.

@@ -128,6 +128,62 @@ class SessionForkTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), pending)
         self.assertEqual(self.agent.session.id, child.id)
 
+    def test_actual_settled_request_can_fork_without_reowning_or_resetting_budget(self):
+        from codine.interactive_budget import complete_shared
+        from codine.shared_budget import session_owner
+        ledger = self.shared(); ledger.close()
+        self.agent.budget_metadata = lambda *_: {'limit_remaining': 5}
+        complete_shared(self.agent, [], [], Budget(self.session.billing), Mock(),
+                        completion=lambda _: ({'role':'assistant','content':'done'}, 'stop', SimpleNamespace(cost='0.05')))
+        request = self.session.billing['shared_request']
+        self.assertIsNone(self.session.billing['pending'])
+        original = self.agent.shared_budget_path.read_bytes()
+        parent_owner = session_owner(self.session)
+        child = fork(self.agent, self.ws)
+        self.assertEqual(child.billing['spent'], '0.15')
+        self.assertNotIn('shared_request', child.billing)
+        self.assertEqual(self.agent.shared_budget_path.read_bytes(), original)
+        state = json.loads(original)
+        self.assertEqual(state['records'][request]['owner'], parent_owner)
+        self.assertEqual(state['records'][request]['phase'], 'settled')
+        self.assertNotEqual(session_owner(child), parent_owner)
+        command('/tree ' + self.session.id, self.agent, self.ws, self.ui)
+        self.assertEqual(self.agent.session.billing['shared_request'], request)
+        self.assertEqual(self.agent.shared_budget_path.read_bytes(), original)
+
+    def test_unverifiable_settled_request_reference_blocks_fork(self):
+        from codine.shared_budget import session_owner
+        ledger = self.shared()
+        request = ledger.reserve(); ledger.dispatched(request); ledger.settle(request, '0')
+        identity = ledger.ledger.state['ledger_id']; ledger.close()
+        self.session.billing.update(shared_request=request, shared_ledger=identity)
+        # The settled receipt belongs to the fixture's different owner, not this session.
+        with self.assertRaisesRegex(BudgetError, 'owner'): fork(self.agent, self.ws)
+        self.session.billing['shared_request'] = ['bad']
+        with self.assertRaisesRegex(BudgetError, 'Invalid shared request'): fork(self.agent, self.ws)
+        self.session.billing['shared_request'] = request
+        self.session.billing['shared_ledger'] = '0'*32
+        with self.assertRaisesRegex(BudgetError, 'another shared'): fork(self.agent, self.ws)
+        self.session.billing.update(shared_request='f'*32, shared_ledger=identity)
+        with self.assertRaisesRegex(BudgetError, 'owner'): fork(self.agent, self.ws)
+        self.agent.shared_budget_path.unlink()
+        self.session.billing['spent'] = '0'
+        with self.assertRaisesRegex(BudgetError, 'missing'): fork(self.agent, self.ws)
+
+    def test_recovered_cancel_allows_idle_fork_but_queue_failure_still_blocks(self):
+        self.agent.inbox = Inbox(self.store, self.session)
+        self.agent.inbox.cancel.set()
+        from codine.run_state import run_record
+        self.session.last_run = run_record(self.session, 'interrupted', self.session.plan_revision, reason='user_cancelled')
+        child = fork(self.agent, self.ws)
+        self.assertEqual(child.branch['parent'], self.session.id)
+        inbox = Inbox(self.store, child); self.agent.inbox = inbox
+        inbox.failure = OSError('injected queue save failure')
+        inbox.cancel.set()
+        with self.assertRaisesRegex(RuntimeError, 'queue save failed'):
+            fork(self.agent, self.ws)
+        self.assertEqual(self.agent.session.id, child.id)
+
     def test_no_shared_allowance_created_for_unused_key_and_local_only_refused(self):
         self.agent.session.provider = 'openrouter'; self.agent.config.provider = 'openrouter'
         self.agent.session.billing['spent'] = '0'
