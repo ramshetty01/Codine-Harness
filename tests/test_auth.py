@@ -84,12 +84,14 @@ class AuthTests(unittest.TestCase):
             target = callback.path + '?' + urlencode({'state':query['state'][0], 'code':'one-time-code'})
             def respond():
                 bad_target=callback.path+'?'+urlencode({'state':'é','code':'one-time-code'})
-                with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
-                    connection.sendall(f'GET {bad_target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
-                    observed['bad_response']=connection.recv(4096)
-                with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
-                    connection.sendall(f'GET {target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
-                    observed['response'] = connection.recv(4096)
+                from tests.local_network import allow_loopback
+                with allow_loopback((callback.hostname, callback.port)):
+                    with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
+                        connection.sendall(f'GET {bad_target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
+                        observed['bad_response']=connection.recv(4096)
+                    with socket.create_connection((callback.hostname, callback.port), timeout=2) as connection:
+                        connection.sendall(f'GET {target} HTTP/1.1\r\nHost: {callback.netloc}\r\n\r\n'.encode())
+                        observed['response'] = connection.recv(4096)
             thread=threading.Thread(target=respond);thread.start();threads.append(thread)
             return True
         result=login(open_browser=browser, exchange_code=fake_exchange, timeout=2)

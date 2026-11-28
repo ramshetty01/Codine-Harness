@@ -34,6 +34,9 @@ class CustomProviderTests(unittest.TestCase):
                     for chunk in owner.chunks:self.wfile.write(('data: '+json.dumps(chunk)+'\n\n').encode())
                     self.wfile.write(b'data: [DONE]\n\n')
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        from tests.local_network import allow_loopback
+        scope=allow_loopback(server.server_address);scope.__enter__()
+        self.addCleanup(scope.__exit__,None,None,None)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         self.addCleanup(lambda:(server.shutdown(),server.server_close(),thread.join()))
         self.endpoint=f'http://127.0.0.1:{server.server_port}/v1'
