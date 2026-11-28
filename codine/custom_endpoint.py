@@ -39,8 +39,8 @@ def canonical_endpoint(value):
 
 
 def validate_key(key,forbidden=()):
-    if not isinstance(key,str) or len(key)>8192 or any(ord(c)<32 or ord(c)==127 for c in key):
-        raise ValueError('Custom credential must be bounded single-line text.')
+    if not isinstance(key,str) or len(key)>8192 or not key.isascii() or key != key.strip() or any(ord(c)<32 or ord(c)==127 for c in key):
+        raise ValueError('Custom credential must be bounded single-line ASCII text without surrounding whitespace.')
     if key and (key.startswith(('sk-or-', 'nvapi-')) or key in forbidden):
         raise ValueError('A known OpenRouter/NVIDIA credential cannot be reused by the custom adapter.')
     return key

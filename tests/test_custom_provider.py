@@ -99,3 +99,30 @@ class CustomProviderTests(unittest.TestCase):
             args[args.index(self.endpoint)]=self.endpoint+'/different'
             with redirect_stdout(io.StringIO()) as output:self.assertEqual(main(args),1)
             self.assertIn('endpoint differs',output.getvalue());self.assertEqual(self.calls,[])
+
+    def test_whitespace_cannot_disguise_known_provider_credentials(self):
+        for key in (' sk-or-fake', ' nvapi-fake', ' known-key', 'known-key '):
+            with self.subTest(key=key):
+                self.config.api_key=key
+                self.config._custom_forbidden_keys=('known-key',)
+                with self.assertRaises(ValueError):
+                    self.adapter().complete([],[],'local',None)
+        self.assertEqual(self.calls,[])
+
+    def test_invalid_header_credentials_fail_before_client_creation(self):
+        for key in ('é-key','key\x80','key\nvalue','key\tvalue','key\x7f','x'*8193,' sk-or-fake'):
+            with self.subTest(length=len(key)):
+                self.config.api_key=key
+                with patch('codine.custom_provider.OpenAI') as client:
+                    with self.assertRaises(ValueError):self.adapter().complete([],[],'local',None)
+                    client.assert_not_called()
+        self.assertEqual(self.calls,[])
+
+    def test_environment_proxy_cannot_redirect_custom_request(self):
+        with patch.dict(os.environ,{'HTTP_PROXY':'http://127.0.0.1:1',
+                                    'HTTPS_PROXY':'http://127.0.0.1:1',
+                                    'ALL_PROXY':'http://127.0.0.1:1','NO_PROXY':''}):
+            reply,finish,_=self.adapter().complete([],[],'local',None)
+        self.assertEqual((reply['content'],finish),('Hello','stop'))
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(self.calls[0][1],'Bearer fake-custom-secret')

@@ -27,6 +27,9 @@ trusted configuration. Settings are startup snapshots, not dynamically reloaded.
 API keys never enter session data. Missing loopback authentication uses the
 nonsecret `codine-local-no-auth` SDK placeholder; remote endpoints require an
 explicit custom credential. Known OpenRouter/NVIDIA keys cannot be reused.
+Credentials must be bounded single-line ASCII; surrounding whitespace is
+rejected before transport creation;
+whitespace cannot disguise a known provider key as a custom credential.
 
 Remote endpoints require HTTPS; plain HTTP requires a literal loopback IP.
 URLs with userinfo, query strings, fragments, ambiguous path components, or known
