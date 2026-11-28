@@ -20,7 +20,9 @@ Tool arguments and project instructions cannot change these limits.
 After an external result reports an explicit top-level error, status
 `declined`/`failed`/`error`/`blocked`, or an MCP `isError: true`, all remaining
 **actions** in that batch are saved as skipped, including dependent core writes.
-Codine does not guess failure from arbitrary prose. A subsequent model step may
+This includes explicit instruction-policy refusals before an external handler
+starts. A limit check also precedes core actions that follow the final permitted
+external attempt. Codine does not guess failure from arbitrary prose. A subsequent model step may
 inspect the results and replan within the remaining turn allowance. Reaching the
 batch cap also skips remaining actions; reaching the turn cap ends the turn with
 `tool_limit`, state `paused`, `retryable: false`. The user must inspect results and

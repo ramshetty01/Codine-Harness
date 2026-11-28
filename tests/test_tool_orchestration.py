@@ -101,3 +101,28 @@ class OrchestrationTests(unittest.TestCase):
                                             ({'role':'assistant','content':'done'},'stop',None)]
         self.agent.run_turn('Read both reports.')
         self.handlers[1].assert_called_once()
+
+    def test_instruction_refusal_stops_dependent_core_write(self):
+        manager=Mock()
+        manager.context.return_value=('',[])
+        manager.before_tool.side_effect=lambda call,effect: (_ for _ in ()).throw(ValueError('New guidance requires review')) if call['function']['name']=='external_a' else None
+        self.agent.instruction_manager=manager
+        core=Mock(return_value={'ok':True})
+        self.registry.register(ToolSpec('core_write','Core',{'type':'object'},core,effect='write'))
+        self.provider.complete.side_effect=[(reply([call('external_a','a'),call('core_write','b')]),'tool_calls',None),
+                                            ({'role':'assistant','content':'Stopped after refusal.'},'stop',None)]
+        self.agent.run_turn('Perform dependent actions.')
+        self.handlers[0].assert_not_called();core.assert_not_called()
+        validate_messages(self.session.messages)
+        results=[json.loads(row['content']) for row in self.session.messages if row['role']=='tool']
+        self.assertIn('error',results[0]);self.assertEqual(results[1]['status'],'skipped')
+
+    def test_reaching_external_cap_skips_following_core_action(self):
+        self.agent.external_limits=ExternalLimits(per_batch=1,per_turn=1)
+        core=Mock(return_value={'ok':True})
+        self.registry.register(ToolSpec('core_write','Core',{'type':'object'},core,effect='write'))
+        self.provider.complete.return_value=(reply([call('external_a','a'),call('core_write','b')]),'tool_calls',None)
+        self.assertEqual(self.agent.run_turn('Bound all remaining actions.'),'tool_limit')
+        self.handlers[0].assert_called_once();core.assert_not_called()
+        validate_messages(self.session.messages)
+        self.assertIsNone(self.session.pending)

@@ -29,12 +29,12 @@ class ExternalCalls:
 
     def before(self, external):
         if self.stopped: return self.skip(self.stopped)
-        if not external: return None
         if self.exhausted:
             self.stopped = 'External tool turn limit reached; no further batch action started.'
         elif self.batch >= self.limits.per_batch:
             self.stopped = 'External tool batch limit reached; reconsider skipped actions in a future step.'
         if self.stopped: return self.skip(self.stopped)
+        if not external: return None
         self.batch += 1
         self.total += 1
         return None

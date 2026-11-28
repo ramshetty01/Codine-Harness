@@ -366,7 +366,7 @@ class Agent:
                                 deferred = json.dumps({'error': str(error), 'action_executed': False})
                         executed = deferred is None
                         result = self.redactor.text(deferred if deferred is not None else self.registry.execute(call))
-                    external_calls.observe(external and executed, result)
+                    external_calls.observe(external, result)
                     signature_result = result
                     if getattr(self, 'artifact_store', None):
                         result = self.artifact_store.offload(call['function']['name'], result)
