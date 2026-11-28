@@ -135,6 +135,9 @@ class Skills:
         self.catalog = []
 
     def _read(self, scope, name, relative='SKILL.md', *, automatic=False, prefix=False, reference=False):
+        # Validate the package component too, not only the reference suffix.
+        # A credential-shaped package name must not bypass the shared exclusions.
+        _validate_path(f'{name}/{relative}', StagingLimits())
         parts = _validate_path(relative, StagingLimits())
         if len(parts) > 12:
             raise ValueError('Skill reference depth exceeds 12.')
@@ -150,8 +153,32 @@ class Skills:
                 raise ValueError('Skill metadata needs explicit read approval.')
         else:
             self.workspace._authorize_read(target)
+        self._check_ignored(path, automatic=automatic)
         return read_file(self.workspace.root, (PROJECT_SKILLS, name, *parts), prefix=prefix,
                          limit=16384 if reference else FILE_LIMIT)
+
+    def _check_ignored(self, path, *, automatic):
+        from .repository_search import ignored_paths, MAX_IGNORES, MAX_IGNORE_BYTES
+        ignores = {}
+        total = 0
+        relative = Path(path)
+        # Match only ancestor rules for this explicit candidate. Never scan/read
+        # unrelated files or load a skill body just to build the catalog.
+        for parent in reversed(relative.parents):
+            candidate = (parent / '.gitignore').as_posix()
+            target = self.workspace.root / candidate
+            if not target.exists() and not target.is_symlink():
+                continue
+            target = self.workspace.resolve(candidate)
+            if automatic and not self.workspace.read_allowed_without_prompt(target):
+                raise ValueError('Skill ignore rules need explicit read approval.')
+            raw, text = self.workspace._read(target)
+            total += len(raw)
+            if len(ignores) >= MAX_IGNORES or len(raw) > 16384 or total > MAX_IGNORE_BYTES:
+                raise ValueError('Skill ignore rules exceed their bounded allowance.')
+            ignores[candidate] = text
+        if path in ignored_paths([path], ignores, self.workspace.root):
+            raise ValueError('Skill path is excluded by project ignore rules.')
 
     def discover(self):
         rows, warnings = [], []
@@ -182,7 +209,7 @@ class Skills:
                             warnings.append('Skill catalog limited to 12 KB.'); break
                         rows.append(row)
                     except (OSError, ValueError):
-                        warnings.append(f'{scope}:{name}: metadata unavailable or unsupported.')
+                        warnings.append(f'{scope} skill metadata unavailable, excluded, or unsupported.')
             except FileNotFoundError:
                 pass
             except (OSError, ValueError):

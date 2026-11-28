@@ -55,7 +55,11 @@ The reference result has its own hash. Paths are normalized relative paths
 inside that package; URLs, absolute paths, traversal, credential/generated paths,
 symlinks and hardlinks are refused. No references are fetched automatically.
 
-Project reads follow existing file policy. Automatic discovery never prompts
+Project reads follow existing file policy and ancestor `.gitignore` rules, including
+explicit qualified loads and reference reads. Discovery never reads an ask-protected
+ignore file without approval; it omits the affected packages instead. Excluded
+package names are not disclosed in discovery warnings. Credential/generated path
+exclusions apply to the package directory name as well as the reference suffix. Automatic discovery never prompts
 and omits metadata requiring approval; an explicit qualified load requests read
 approval where needed. Reading a skill does not grant generic file edit rights.
 Global text reads use the dedicated checked reader, not a broad HOME workspace.
