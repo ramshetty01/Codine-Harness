@@ -87,7 +87,7 @@ class CommandCompleter(Completer):
             token, names = complete_attachment(text, self.attachment_paths)
             if token is not None:
                 for name in names:
-                    yield Completion('@' + (json.dumps(name, ensure_ascii=False) if any(c.isspace() or c in '"\\' for c in name) else name),
+                    yield Completion('@' + (json.dumps(name, ensure_ascii=False) if any(c.isspace() or c in '"\\\'@' for c in name) else name),
                                      start_position=-len(token), display=name, display_meta='Attach file snapshot')
                 return
         if not text.startswith('/') or any(char.isspace() for char in text):

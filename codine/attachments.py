@@ -21,8 +21,14 @@ class Attachments:
 
     def paths(self, prefix):
         if time.monotonic() - self._scanned > 1:
-            self._names = self.workspace.list_files(limit=2000)['files']
+            # Completion is advisory. A failed scan must not crash the prompt
+            # or leave older names visible after a policy/filesystem failure.
+            self._names = []
             self._scanned = time.monotonic()
+            try:
+                self._names = self.workspace.list_files(limit=2000)['files']
+            except (OSError, ValueError):
+                return []
         return [name for name in self._names if name.startswith(prefix) and all(c.isprintable() for c in name)][:40]
 
     def prepare(self, text):

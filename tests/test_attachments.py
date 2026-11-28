@@ -90,3 +90,27 @@ class AttachmentTests(unittest.TestCase):
         self.assertIn('attached fact', json.dumps(provider.complete.call_args.args[0]))
         self.assertEqual(agent.inbox.list(), [])
         validate_messages(session.messages)
+
+    def test_completion_quotes_apostrophe_and_at_filename_for_roundtrip(self):
+        for name in ("one'apostrophe.txt", 'one@symbol.txt'):
+            (self.root / name).write_text('attached ' + name)
+        completer = CommandCompleter()
+        completer.attachment_paths = self.manager.paths
+        choices = list(completer.get_completions(Document('Explain @one'), None))
+        self.assertEqual(len(choices), 2)
+        for choice in choices:
+            self.assertTrue(choice.text.startswith('@"'))
+            result = self.manager.prepare('Explain ' + choice.text)
+            self.assertEqual(len(self.manager.latest), 1)
+            self.assertIn('attached ', result)
+
+    def test_completion_scan_failure_clears_stale_names_and_keeps_prompt_usable(self):
+        completer = CommandCompleter()
+        completer.attachment_paths = self.manager.paths
+        self.manager._names = ['old-private-name.txt']
+        for error in (ValueError('Git unavailable'), OSError('scanner failed')):
+            self.manager._scanned = 0
+            with unittest.mock.patch.object(self.ws, 'list_files', side_effect=error):
+                self.assertEqual(list(completer.get_completions(Document('Explain @'), None)), [])
+            self.assertEqual(self.manager._names, [])
+            self.assertTrue(list(completer.get_completions(Document('/help'), None)))
