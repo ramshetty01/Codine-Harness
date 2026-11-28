@@ -68,6 +68,45 @@ class FallbackTests(ConversationRewindTests):
         with self.assertRaises(BudgetError):command('/fallback review next-model',self.agent,self.ws,self.ui)
         self.assertFalse(hasattr(self.agent,'_fallback_review'))
 
+    def test_custom_fallback_keeps_endpoint_and_excludes_opaque_archive_from_request(self):
+        from codine.context import project_context
+        endpoint='https://compatible.example.test/v1'
+        self.session.provider=self.agent.config.provider='custom'
+        self.session.provider_endpoint=self.agent.config.custom_endpoint=endpoint
+        self.agent.config.custom_unmetered=True
+        self.session.messages[-1]['reasoning_details']=[{'type':'reasoning.encrypted','data':'old-model-opaque'}]
+        self.agent.save()
+        command('/fallback review next-model',self.agent,self.ws,self.ui)
+        command('/fallback confirm '+self.agent._fallback_review[0],self.agent,self.ws,self.ui)
+        child=self.agent.session
+        self.assertEqual(child.provider_endpoint,endpoint)
+        self.assertEqual(self.store._read_session(child.id).provider_endpoint,endpoint)
+        self.assertIn('old-model-opaque',str(child.messages))
+        self.assertNotIn('old-model-opaque',str(project_context(child,[],160000)[0]))
+        self.assertEqual(child.billing['spent'],'0.23')
+        self.provider.complete.assert_not_called()
+
+    def test_shared_settled_receipts_unchanged_and_confirm_rechecks_preflight_mutation(self):
+        from codine.shared_budget import SharedBudget
+        self.session.provider=self.agent.config.provider='openrouter'
+        self.agent.config.api_key='fake-key';self.agent.shared_budget_path=self.root/'shared.json'
+        with SharedBudget(self.agent.shared_budget_path,'fake-key',owner='fake-owner') as budget:
+            budget.reserve('a'*32);budget.dispatched('a'*32);budget.settle('a'*32,'0.23')
+        before=self.agent.shared_budget_path.read_bytes()
+        command('/fallback review next-model',self.agent,self.ws,self.ui)
+        digest=self.agent._fallback_review[0]
+        self.provider.preflight.side_effect=lambda *args:setattr(self.session,'title','changed during confirm')
+        with self.assertRaisesRegex(ValueError,'changed'):
+            command('/fallback confirm '+digest,self.agent,self.ws,self.ui)
+        self.assertIs(self.agent.session,self.session)
+        self.assertEqual(self.agent.shared_budget_path.read_bytes(),before)
+        self.provider.preflight.side_effect=None
+        command('/fallback review next-model',self.agent,self.ws,self.ui)
+        command('/fallback confirm '+self.agent._fallback_review[0],self.agent,self.ws,self.ui)
+        self.assertEqual(self.agent.session.billing['spent'],'0.23')
+        self.assertEqual(self.agent.shared_budget_path.read_bytes(),before)
+        self.provider.complete.assert_not_called()
+
 class FallbackPolicyTests(unittest.TestCase):
     def test_private_policy_and_workspace_protection(self):
         import json
