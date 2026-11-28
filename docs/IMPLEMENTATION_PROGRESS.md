@@ -379,3 +379,30 @@ reviewed modern-protocol support and deferred schema discovery are prepared in
 separate commits for the next integration gate. Retention review, controlled tool
 orchestration and provider compatibility work continue in parallel. No real
 repository cleanup or new API spending occurred.
+
+## External integration and long-task gate integration
+
+Integration through `c73951e` passes **829 Docker-enabled tests, zero skips**,
+plus installed-wheel startup/resources/session/restart/extensions/SDK resume and
+12/12 offline exercises. The custom SDK path also uses a real local HTTP server
+with fake responses. No paid inference or live authentication was used.
+
+This batch integrates modern and legacy stdio MCP, deferred exact-revision tool
+loading, bounded external orchestration/result projection, reviewed retention
+into protected trash, explicit custom compatible endpoints, private credential
+storage and bounded OpenRouter PKCE, and measured cache reporting with reviewed
+fresh-context fallback. It also includes the combined compaction/interruption/
+resume gate in MILESTONE3_ACCEPTANCE.md and the external acceptance description in
+MILESTONE6_ACCEPTANCE.md. RPC denies approval when its review notice was truncated.
+
+The first integration run exposed three outdated test fixtures: model switching
+now needs a complete idle session with settled accounting, and routing explicitly
+disables automatic provider fallback. Fixtures now check those requirements,
+including preserving a pending charge when switching is refused. Installed checks
+also canonicalize the temporary home path and provide the session provider field.
+The complete rerun passed. Hosted CI is pending before issue/milestone closure.
+
+Parallel work continues on read-only workers, shared supervision, and a second
+pinned repository evaluation pack. Worker launch must retain the parent's existing
+accounting authority. These foundations do not yet satisfy the two-worker M7 gate.
+Existing user edits in example.py remain untouched and unstaged.
