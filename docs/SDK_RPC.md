@@ -157,3 +157,12 @@ plan mode, cancellation followed by another turn, command validation, shared-cos
 settlement and unknown-cost blocking. `test_rpc_protocol` checks duplicate IDs and
 JSON keys, queue/frame bounds, expired approvals, redaction, disconnect and output
 truncation. These tests establish transport/accounting behavior, not model quality.
+
+Custom compatible endpoints use `Client(project, provider="custom", model=MODEL,
+endpoint=URL, allow_unmetered_custom=True)`. This explicitly acknowledges that
+custom USD costs are unknown and no dollar cap can be enforced. Omit the argument
+to inherit trusted user settings, or pass `False` to refuse unmetered operation
+even when those settings enable it. The CLI equivalent is
+`--no-allow-unmetered-custom`. Credentials stay in the private credential store
+or trusted environment; never pass them in an endpoint URL or process arguments.
+Exact endpoint-bound tool capability declarations are still required.

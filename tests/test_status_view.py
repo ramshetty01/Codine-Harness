@@ -127,7 +127,7 @@ from codine.config import Config
 from prompt_toolkit.output.vt100 import Vt100_Output
 # PTY fixture reports available rows; no emulator is present to answer CPR.
 Vt100_Output.get_rows_below_cursor_position=lambda self: 12
-cli.Config.load=staticmethod(lambda project,provider=None,model=None: Config(Path(project).resolve(),api_key='fake',model='fake'))
+cli.Config.load=staticmethod(lambda project,provider=None,model=None,**kwargs: Config(Path(project).resolve(),api_key='fake',model='fake'))
 class Fake:
     def __init__(self,config): pass
     def close(self): pass

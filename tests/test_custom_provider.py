@@ -126,3 +126,28 @@ class CustomProviderTests(unittest.TestCase):
         self.assertEqual((reply['content'],finish),('Hello','stop'))
         self.assertEqual(len(self.calls),1)
         self.assertEqual(self.calls[0][1],'Bearer fake-custom-secret')
+
+    def test_sdk_custom_endpoint_acknowledgement_and_real_loopback_request(self):
+        from codine.sdk import Client, CodineError
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory).resolve()
+            settings=home/'.config/codine';settings.mkdir(parents=True,mode=0o700)
+            capabilities=settings/'model-capabilities.json'
+            capabilities.write_text(json.dumps({'version':1,'custom':{'local':{
+                'endpoint':self.endpoint,'supported_parameters':['tools']}}}))
+            capabilities.chmod(0o600)
+            environment={'HOME':str(home),'PATH':os.environ.get('PATH',''),
+                         'CODINE_HOME':str(home/'state'), 'CODINE_CUSTOM_UNMETERED':'true'}
+            with patch.dict(os.environ,environment,clear=True):
+                with self.assertRaises(CodineError):
+                    Client(self.root,provider='custom',model='local',endpoint=self.endpoint,
+                           allow_unmetered_custom=False)
+                self.assertEqual(self.calls,[])
+                with Client(self.root,provider='custom',model='local',endpoint=self.endpoint,
+                            allow_unmetered_custom=True) as client:
+                    result=client.run('Say hello without tools.')
+                    self.assertEqual(result['outcome']['outcome'],'completed')
+                    client.command('/budget')
+                self.assertEqual(len(self.calls),1)
+                self.assertEqual(self.calls[0][0],'/v1/chat/completions')
+                self.assertEqual(self.calls[0][1],'Bearer codine-local-no-auth')

@@ -103,7 +103,7 @@ def parser():
     result.add_argument('--prompt', help='Run one prompt; stdin pipes are also accepted')
     result.add_argument('--provider', choices=('nvidia', 'openrouter', 'custom'))
     result.add_argument('--endpoint', help='Trusted custom OpenAI-compatible base URL; never taken from project .env')
-    result.add_argument('--allow-unmetered-custom', action='store_true', default=None, help='Explicitly accept unknown custom costs without an enforced USD cap')
+    result.add_argument('--allow-unmetered-custom', action=argparse.BooleanOptionalAction, default=None, help='Explicitly accept unknown custom costs without an enforced USD cap')
     result.add_argument('--model', help='Explicit model ID for the selected provider')
     result.add_argument('--executor', choices=('host', 'docker'), help='Command executor; resume retains saved choice, new sessions default host')
     result.add_argument('--execution-profile', help='Explicit user-owned Docker access profile outside the project')

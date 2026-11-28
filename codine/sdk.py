@@ -33,7 +33,8 @@ class CodineError(RuntimeError):
 
 class Client:
     def __init__(self, project, *, provider=None, model=None, resume=None, executor=None,
-                 plan=False, on_event=None, approve=None, startup_timeout=20, command=None):
+                 plan=False, endpoint=None, allow_unmetered_custom=None,
+                 on_event=None, approve=None, startup_timeout=20, command=None):
         self.on_event, self.approve = on_event, approve
         self.lock = threading.RLock()
         self.write_lock = threading.Lock()
@@ -56,8 +57,12 @@ class Client:
         if not isinstance(command,(list,tuple)) or not command or any(not isinstance(v,str) for v in command):
             raise ValueError('command must be a trusted executable argument list.')
         argv=[*command,'--rpc','--project',str(Path(project).resolve())]
-        for flag,value in (('--provider',provider),('--model',model),('--resume',resume),('--executor',executor)):
+        for flag,value in (('--provider',provider),('--model',model),('--resume',resume),('--executor',executor),('--endpoint',endpoint)):
             if value is not None:argv.extend([flag,str(value)])
+        if allow_unmetered_custom is not None:
+            if type(allow_unmetered_custom) is not bool:
+                raise ValueError('allow_unmetered_custom must be bool or None.')
+            argv.append('--allow-unmetered-custom' if allow_unmetered_custom else '--no-allow-unmetered-custom')
         if plan:argv.append('--plan')
         self.process=subprocess.Popen(argv,cwd=project,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                       start_new_session=True,bufsize=0)

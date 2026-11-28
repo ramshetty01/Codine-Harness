@@ -25,7 +25,7 @@ codine.paths.STATE_ROOT=Path.cwd()/'.test-shared'
 import codine.mcp_settings
 codine.mcp_settings.MCP_ROOT=Path.cwd()/'.test-mcp'
 codine.router_catalog.metadata=lambda *a: {'limit_remaining':5}
-cli.Config.load=lambda project,provider=None,model=None:Config(Path(project).resolve(),provider=provider or 'nvidia',model=model or 'fake',api_key='fake-only-key')
+cli.Config.load=lambda project,provider=None,model=None,**kwargs:Config(Path(project).resolve(),provider=provider or 'nvidia',model=model or 'fake',api_key='fake-only-key')
 class Fake:
     def __init__(self,config):pass
     def close(self):pass
