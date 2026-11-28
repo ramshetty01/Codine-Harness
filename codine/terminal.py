@@ -42,6 +42,7 @@ COMMANDS = {
     '/permissions': 'Choose ask or auto-edit', '/quit': 'Save and exit',
 }
 TOOL_LABELS = {
+    'navigate_symbols': 'Navigate symbols',
     'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
     'inspect_file': 'Inspect file metadata', 'move_file': 'Move file', 'rename_file': 'Rename file', 'delete_file': 'Delete file',
     'apply_changeset': 'Apply related file edits',

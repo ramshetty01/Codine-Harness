@@ -297,4 +297,6 @@ def build_registry(workspace, request_restart):
     register_notebook_tools(registry, workspace)
     from .project_checks import register_check_tools
     register_check_tools(registry, workspace)
+    from .symbol_navigation import register_symbol_tool
+    register_symbol_tool(registry, workspace)
     return registry
