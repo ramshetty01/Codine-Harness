@@ -300,3 +300,12 @@ store.close()
         self.agent._child_supervision_active=False
         self.session.delegation=parent.delegation
         with self.assertRaisesRegex(ValueError,'unresolved'):self.storage.plan(30,1,16)
+
+    def test_task_plan_lease_owner_survives_retention_before_child_link(self):
+        owner,path=self.other_session()
+        owner.worker_tasks={'revision':1,'tasks':[{'id':'inspect','prompt':'Inspect source',
+            'depends_on':[],'resources':['src'],'status':'running','result':{},'reason':''}]}
+        store=SessionStore(self.root);store.save(owner);store.close();self.old(path)
+        self.assertNotIn(owner.id,{row['id'] for row in self.storage.plan(30,1,16)['selected']})
+        self.session.worker_tasks=owner.worker_tasks
+        with self.assertRaisesRegex(ValueError,'supervision ownership'):self.storage.plan(30,1,16)

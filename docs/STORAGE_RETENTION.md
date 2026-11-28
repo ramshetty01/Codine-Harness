@@ -112,3 +112,5 @@ and retained references. No cleanup runs against a real user repository and no
 model API is called.
 
 Sessions with supervision records (parents and archival children) are retained conservatively, including completed links. Active or unresolved supervision blocks cleanup; retention cannot remove the records needed to inspect or recover child ownership.
+
+Worker task plans are also retained, including the prelaunch resource-acquisition window before a child link exists. A running task wave blocks retention in its owner session.
