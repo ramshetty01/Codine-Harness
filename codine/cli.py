@@ -233,6 +233,7 @@ def command(text, agent, workspace, ui):
         if hasattr(workspace, "project_checks"):
             workspace.project_checks.candidates.clear()
             workspace.project_checks.results.clear()
+        workspace.lifecycle_versions.clear()
         if hasattr(agent, "git_inspector"):
             from .git_awareness import GitError
             try:

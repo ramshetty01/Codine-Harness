@@ -32,6 +32,7 @@ class Workspace:
         self.app_root = Path(app_root).resolve() if app_root else None
         self.read_versions = {}
         self.read_ranges = {}
+        self.lifecycle_versions = {}
         self.mode = "ask"
         self.track_changes = track_changes
 
@@ -170,10 +171,10 @@ class Workspace:
         return (target == self.app_root / "main.py" or target.is_relative_to(self.app_root / "codine")
                 or target in [self.app_root / name for name in ("requirements.txt", "model_picker.py", ".gitignore", "RECOVERY.md", "PRD.md")])
 
-    def _confirm(self, target, description, before, after):
+    def _confirm(self, target, description, before, after, *, preview=None):
         self.resolve(target.relative_to(self.root).as_posix(), operation='write')
         decision = self._file_decision('write', target)
-        self.emit(preview_change(target.relative_to(self.root).as_posix(), before, after))
+        self.emit(preview if preview is not None else preview_change(target.relative_to(self.root).as_posix(), before, after))
         if self._core(target):
             if decision and decision.rules:
                 from .command_policy import Decision
@@ -302,6 +303,21 @@ class Workspace:
         self.read_ranges[path] = [(start, start + len(new_text))]
         return {'status': 'updated', 'path': path}
 
+    def inspect_file(self, path):
+        from .file_lifecycle import inspect_file
+        return inspect_file(self, path)
+
+    def move_file(self, path, destination, expected_sha256):
+        from .file_lifecycle import operate
+        return operate(self, path, expected_sha256, destination)
+
+    def rename_file(self, path, destination, expected_sha256):
+        return self.move_file(path, destination, expected_sha256)
+
+    def delete_file(self, path, expected_sha256):
+        from .file_lifecycle import operate
+        return operate(self, path, expected_sha256)
+
     def show_change(self, ident=None):
         from .changes import ChangeStore
         store = ChangeStore(self.root)
@@ -309,6 +325,9 @@ class Workspace:
         if not records:
             return 'No file-tool checkpoints.'
         record = records[0]
+        if record.get('kind') == 'lifecycle':
+            from .file_lifecycle import show
+            return show(self, record)
         _, current = self._read(self.resolve(record['path']))
         return preview_change(record['path'], record['before'] or '', current)
 
@@ -323,6 +342,9 @@ class Workspace:
         record = records[0]
         if record.get('undone'):
             raise ValueError('This change was already undone.')
+        if record.get('kind') == 'lifecycle':
+            from .file_lifecycle import undo
+            return undo(self, store, record)
         target = self.resolve(record['path'], operation='write')
         data, current = self._read(target)
         if target.stat().st_nlink != 1 or fingerprint(data) != record['after_hash']:

@@ -256,6 +256,13 @@ def build_registry(workspace, request_restart):
         {'path': string, 'start_line': integer(1, 10000000), 'max_lines': integer(1, 2000), 'start_char': integer(0, 2000000), 'expected_sha256': string}, ('path',))
     add('search', 'Search literal text or deadline-isolated regex in project files, optionally filtered by glob and case sensitivity. Honors .gitignore by default; bounded matches/bytes/scan. Read before editing.', workspace.search,
         {'query': string, 'path': string, 'limit': integer(1, 200), 'glob': string, 'regex': {'type': 'boolean'}, 'case_sensitive': {'type': 'boolean'}, 'respect_ignore': {'type': 'boolean'}}, ('query',))
+    add('inspect_file', 'Inspect metadata only for a regular text or binary project file up to 2 MB: size, mode and SHA256. Establishes a lifecycle version for move/rename/delete, not text-edit read coverage.', workspace.inspect_file,
+        {'path': string}, ('path',))
+    for name in ('move_file', 'rename_file'):
+        add(name, 'Move/rename one inspected regular file to a NEW destination with previews, both-path permissions and recoverable checkpoints. Never overwrites; pass SHA256 from inspect_file or a complete read_file.', getattr(workspace, name),
+            {'path': string, 'destination': string, 'expected_sha256': string}, ('path', 'destination', 'expected_sha256'), effect='write')
+    add('delete_file', 'Delete one inspected regular file after preview and permission checks. Requires current SHA256; creates a recoverable before-image checkpoint. No directories, links or excluded paths.', workspace.delete_file,
+        {'path': string, 'expected_sha256': string}, ('path', 'expected_sha256'), effect='write')
     add('write_file', 'Create a NEW project text file, with diff and approval. Cannot overwrite existing files.', workspace.write_file,
         {'path': string, 'content': string}, ('path', 'content'), effect='write')
     add('edit_file', 'Replace exactly one occurrence of old_text previously read in the CURRENT file version. Shows diff, requires approval by default, rejects stale edits.', workspace.edit_file,

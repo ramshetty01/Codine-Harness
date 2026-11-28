@@ -36,6 +36,7 @@ COMMANDS = {
 }
 TOOL_LABELS = {
     'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
+    'inspect_file': 'Inspect file metadata', 'move_file': 'Move file', 'rename_file': 'Rename file', 'delete_file': 'Delete file',
     'write_file': 'Create file', 'edit_file': 'Edit file', 'replace_lines': 'Replace lines', 'check_python': 'Check Python',
     'start_job': 'Start background job', 'job_status': 'Inspect job', 'cancel_job': 'Cancel job',
     'run_command': 'Run command', 'request_restart': 'Prepare restart',
