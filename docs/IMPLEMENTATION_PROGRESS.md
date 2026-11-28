@@ -260,3 +260,35 @@ restart checks with networking blocked. Hosted run
 provides the final supported-platform gate. No inference calls were made; shared
 spending remains unchanged. The M4 acceptance tests verify harness behavior with
 scripted provider responses, not real-model coding quality or parity with Pi.
+
+## Scoped customization and safe connection setup
+
+I1 loads bounded user-global/project/scoped-directory guidance with explicit
+precedence and source hashes. New or changed applicable guidance defers a
+side-effecting tool until the model has seen it. Guidance never grants permissions.
+Opened global instruction descriptors must be owned by the user and not
+shared-writable. I2 resolves startup settings without mutating the shell, exposes
+redacted source provenance and selects saved-session provider/model settings before
+validating unrelated startup defaults. Existing budget ledgers remain authoritative.
+
+I5 adds explicit scoped templates, literal arguments, source/hash previews and
+unsent drafts. Template text cannot implicitly invoke a slash command or attach a
+file. Protected configuration roots reject case/Unicode aliases, including before
+the target exists. A5 adds at most two connection-setup retries to owned SDK
+clients with redirects and broad SDK retries disabled. HTTP errors, transmitted
+read/write failures, certificate failures and partial streams are never replayed.
+A single logical request keeps one reservation and one settlement; exhaustion
+retains the pending charge guard. Transport-level tests prove the no-write retry
+boundary.
+
+Final integration at `7730651` passed **577 Docker-enabled tests with zero skips**.
+Hosted run [46092754846](https://github.com/ramshetty01/Codine-Harness/actions/runs/46092754846)
+passed all nine jobs. A fresh installed wheel passed resource/session/restart and
+startup checks plus 12/12 offline exercises with networking blocked. These changes
+made no inference calls and did not alter the real shared allowance.
+
+See [INSTRUCTION_HIERARCHY.md](INSTRUCTION_HIERARCHY.md), [SETTINGS.md](SETTINGS.md),
+[PROMPT_TEMPLATES.md](PROMPT_TEMPLATES.md), and [PROVIDER_FAILURES.md](PROVIDER_FAILURES.md).
+M3 still needs its combined long-task/summary-quality acceptance gate; closing its
+implementation issues alone does not close that milestone. M5 extension trust,
+skills, reviewed memory and the versioned extension lifecycle remain in progress.
