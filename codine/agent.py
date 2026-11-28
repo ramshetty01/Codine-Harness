@@ -67,7 +67,42 @@ class Agent:
         self.emit('run_end', {**self.session.last_run, 'session': self.session.id})
         return outcome
 
-    def run_turn(self, text):
+    def queued_boundary(self):
+        inbox = getattr(self, 'inbox', None)
+        if inbox:
+            inbox.check_cancel()
+            return bool(inbox.ready('steer'))
+        return False
+
+    def deliver_queued(self, item):
+        """Commit the message and receipt together before acknowledging the sidecar."""
+        with self.inbox.lock:
+            if item['id'] in self.session.queue_receipts:
+                self.inbox.reconcile(self.session.queue_receipts)
+                return False
+            if not any(row['id'] == item['id'] for row in self.inbox.list()):
+                return False  # Removed from the queue before delivery began.
+            previous_receipts = self.session.queue_receipts
+            self.session.messages.append({'role': 'user', 'content': self.redactor.text(item['text'])})
+            self.session.queue_receipts = (previous_receipts + [item['id']])[-128:]
+            try:
+                self.save()
+            except BaseException:
+                self.session.messages.pop()
+                self.session.queue_receipts = previous_receipts
+                raise  # Persistence errors are fatal in the CLI; reload disk state.
+            self.inbox.reconcile(self.session.queue_receipts)
+        self.emit('status', 'Delivered ' + item['lane'] + ' ' + item['id'][:8])
+        return True
+
+    def apply_steering(self):
+        if not self.queued_boundary():
+            return False
+        for item in self.inbox.ready('steer'):
+            self.deliver_queued(item)
+        return True
+
+    def run_turn(self, text, *, queued_item=None):
         self._in_turn = True
         self._save_failed = False
         self._terminal_emitted = False
@@ -75,7 +110,7 @@ class Agent:
         self._started_plan_revision = self.session.plan_revision
         self.session.last_run = run_record(self.session, 'running', self._started_plan_revision)
         try:
-            return self.finish(self._run_turn(text))
+            return self.finish(self._run_turn(text, queued_item=queued_item) if queued_item else self._run_turn(text))
         except BaseException as error:
             if isinstance(error, PersistenceError): reason = 'persistence_error'
             elif isinstance(error, BudgetError): reason = 'budget_blocked'
@@ -120,6 +155,13 @@ class Agent:
 
     def complete(self, messages, schemas, ledger, emit=None):
         """Normal and summary calls use exactly the same accounting boundary."""
+        self.queued_boundary()
+        target_emit = emit or self.emit
+        def checked_emit(kind, data):
+            inbox = getattr(self, 'inbox', None)
+            if inbox:
+                inbox.check_cancel()
+            target_emit(kind, data)
         self._phase = 'preflight'
         preflight = getattr(self.provider, 'preflight', None)
         if callable(preflight):
@@ -129,13 +171,13 @@ class Agent:
         self._phase = 'accounting'
         if ledger and getattr(self, 'shared_budget_path', None) is not None:
             from .interactive_budget import complete_shared
-            reply, finish, usage = complete_shared(self, messages, schemas, ledger, emit or self.emit)
+            reply, finish, usage = complete_shared(self, messages, schemas, ledger, checked_emit)
         else:
             if ledger:
                 ledger.reserve()
                 self.save()
             self._phase = 'provider'
-            reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, emit or self.emit)
+            reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, checked_emit)
             self._phase = 'processing'
             if ledger:
                 cost = getattr(usage, 'cost', None) if usage else None
@@ -180,7 +222,7 @@ class Agent:
             raise
         return projected
 
-    def _run_turn(self, text):
+    def _run_turn(self, text, *, queued_item=None):
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
         signatures = Counter()
         loop_detected = False
@@ -195,9 +237,14 @@ class Agent:
             if not self.session.billing:
                 self.session.billing = Budget.create(self.config.budget_usd, self.config.request_budget_usd).state
             ledger = Budget(self.session.billing)
-        self.session.messages.append({'role': 'user', 'content': self.redactor.text(text)})
-        self.save()
+        if queued_item:
+            if not self.deliver_queued(queued_item):
+                raise ValueError('Queued input was removed or already delivered; no request sent.')
+        else:
+            self.session.messages.append({'role': 'user', 'content': self.redactor.text(text)})
+            self.save()
         for step in range(self.config.max_steps):
+            self.apply_steering()
             window, output = self.config.request_limits(self.session.model)
             schemas = self.registry.schemas()
             context_guidance = guidance + self.redactor.text(plan_context(self.session))
@@ -206,6 +253,8 @@ class Agent:
                                                   token_budget=window, output_tokens=output, allow_trim=False)
             except ContextLimitError:
                 messages, start = self.compact_context(ledger, window, output, context_guidance, schemas)
+            if self.apply_steering():
+                continue  # Reproject if steering arrived during context/summary work.
             self.emit('status', f'Context estimate {estimate_tokens(messages, schemas)} tokens + {output} output reserved / {window} local limit (byte estimate, not exact).')
             if start > self.session.context_start:
                 self.emit('status', f'Context includes recent complete turns from message {start}; older turns remain saved.')
@@ -226,6 +275,8 @@ class Agent:
                     self.emit('status', 'No answer text returned. Try a shorter task or a larger output budget.')
                 if finish == 'length':
                     self.emit('status', 'Output reached the token limit; the answer may be incomplete.')
+                if self.apply_steering():
+                    continue
                 return 'completed' if finish != 'length' else 'output_limit'
             self.session.pending = {'reply': reply, 'results': {}}
             self.save()  # Durable intent BEFORE any side effect.
@@ -233,7 +284,9 @@ class Agent:
                 for call in calls:
                     self.emit('tool_request', call)
                     self.emit('tool', call['function']['name'])
-                    if self.restart_requested:
+                    if self.queued_boundary():
+                        result = '{"status":"skipped","reason":"New user steering arrived; this action was not started. Reconsider after reading it."}'
+                    elif self.restart_requested:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
                     else:
                         self._phase = 'tool'
@@ -257,6 +310,7 @@ class Agent:
                         loop_detected = True
                 self.session.repair_pending()
                 self.save()  # Commit complete assistant/tool group.
+                self.apply_steering()
             except KeyboardInterrupt:
                 raise
             if self.restart_requested:

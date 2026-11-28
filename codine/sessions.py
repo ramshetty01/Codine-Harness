@@ -74,6 +74,7 @@ class Session:
     plan: list = field(default_factory=list)
     plan_revision: int = 0
     title: str = ""
+    queue_receipts: list = field(default_factory=list)
     last_run: dict = field(default_factory=dict)
     git_baseline: dict = field(default_factory=dict)
     migration: dict = field(default_factory=dict)
@@ -170,6 +171,8 @@ class SessionStore:
         validate_title(session.title)
         from .migration import validate_migration
         validate_migration(session.migration)
+        from .inbox import validate_receipts
+        validate_receipts(session.queue_receipts)
         from .run_state import validate_run
         validate_run(session.last_run)
         from .git_awareness import validate_baseline
@@ -235,6 +238,8 @@ class SessionStore:
             validate_title(session.title)
             from .migration import validate_migration
             validate_migration(session.migration)
+            from .inbox import validate_receipts
+            validate_receipts(session.queue_receipts)
             from .run_state import validate_run
             validate_run(session.last_run)
             from .git_awareness import validate_baseline

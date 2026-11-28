@@ -123,7 +123,7 @@ class ProjectChecks:
             if docker and getattr(run, 'snapshot_hashes', {}).get(row['source']) != row['source_sha256']:
                 raise ValueError('Approved snapshot configuration differs from discovery. Discover checks again.')
             try:
-                outcome = run(None, getattr(self.workspace, 'command_output', None))
+                outcome = run(getattr(self.workspace, 'cancel_event', None), getattr(self.workspace, 'command_output', None))
             except OSError:
                 # Missing runtimes, launch permissions and OS transport failures
                 # are not test failures or proof that any check completed. Avoid

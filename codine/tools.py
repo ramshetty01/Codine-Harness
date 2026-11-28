@@ -96,7 +96,7 @@ def prepare_host_command(workspace, argv, cwd='.', timeout=30, *, timeout_ceilin
 
 def run_command(workspace, argv, cwd='.', timeout=30):
     run = prepare_host_command(workspace, argv, cwd, timeout)
-    return run(None, getattr(workspace, 'command_output', None)) if callable(run) else run
+    return run(getattr(workspace, 'cancel_event', None), getattr(workspace, 'command_output', None)) if callable(run) else run
 
 
 def _run_host(argv, directory, env, timeout, cancel_event=None, on_output=None):
@@ -210,7 +210,7 @@ def prepare_docker_command(workspace, argv, files, cwd='.', timeout=30, *, timeo
 
 def run_docker_command(workspace, argv, files, cwd='.', timeout=30):
     run = prepare_docker_command(workspace, argv, files, cwd, timeout)
-    return run(None, getattr(workspace, 'command_output', None)) if callable(run) else run
+    return run(getattr(workspace, 'cancel_event', None), getattr(workspace, 'command_output', None)) if callable(run) else run
 
 
 def start_job(workspace, argv, files=None, cwd='.', timeout=300):

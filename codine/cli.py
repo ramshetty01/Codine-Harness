@@ -19,8 +19,15 @@ from .sessions import Session, SessionStore
 from .terminal import Terminal
 from .tools import build_registry, execution_status
 from .workspace import Workspace
+from .inbox import Inbox
+from .busy_input import busy_input, queue_command, InputOwnershipError
 
 HELP = '''Commands
+  /queue                Show pending steering and follow-ups
+  /steer TEXT           Queue an urgent correction at the next safe boundary
+  /drop ID              Remove a pending queued item
+  /next                 Run next pending item (also resumes recovered queue)
+  /stop                 During a busy turn, cancel; keep queued work
   /help                 Show this guide
   /plan                 Enter read-only planning; /permissions ask exits
   /jobs [ID]            List background jobs or inspect bounded logs
@@ -456,14 +463,31 @@ def main(argv=None):
         one_shot = args.prompt
         if one_shot is None and not sys.stdin.isatty():
             one_shot = sys.stdin.read()
-        def turn(text):
+        def active_inbox():
+            if not getattr(agent, 'inbox', None) or agent.inbox.path != store.path(agent.session.id).with_suffix('.inbox'):
+                agent.inbox = Inbox(store, agent.session)
+                workspace.cancel_event = agent.inbox.cancel
+            return agent.inbox
+
+        def turn(text, queued_item=None):
             try:
-                outcome = agent.run_turn(text)
+                inbox = active_inbox()
+                if inbox.failure:
+                    inbox.check_cancel()
+                inbox.cancel.clear()
+                with busy_input(ui, inbox):
+                    outcome = agent.run_turn(text, queued_item=queued_item)
+                    # Follow-ups only auto-start after clean, persisted model completion.
+                    while outcome == 'completed' and not inbox.cancel.is_set():
+                        items = inbox.ready('steer') or inbox.ready('followup')
+                        if not items:
+                            break
+                        outcome = agent.run_turn(items[0]['text'], queued_item=items[0])
                 if agent.restart_requested:
                     agent.restart_requested = False
                     restart_process(agent, plan=workspace.mode == 'plan')
                 return outcome in ('completed', 'restart')
-            except PersistenceError:
+            except (PersistenceError, InputOwnershipError):
                 raise
             except KeyboardInterrupt:
                 ui.emit('end_stream', '')
@@ -474,6 +498,9 @@ def main(argv=None):
             except (APIError, OSError, ValueError, RuntimeError) as error:
                 # Agent owns recovery and emits the single structured run outcome.
                 show_error(ui, error)
+            finally:
+                if getattr(agent, 'inbox', None) and (agent.inbox.cancel.is_set() or agent.session.last_run.get('outcome') != 'completed'):
+                    agent.inbox.defer_pending()
             return False
         if one_shot is not None:
             if not one_shot.strip():
@@ -483,6 +510,9 @@ def main(argv=None):
                 agent.finish('command')
                 return 0
             return 0 if turn(one_shot) else 1
+        recovered = active_inbox().list()
+        if recovered:
+            ui.write(f'{len(recovered)} queued inputs recovered. Review /queue; /next sends the next one. Nothing was replayed.')
         while True:
             try:
                 text = ui.prompt().strip()
@@ -494,11 +524,21 @@ def main(argv=None):
                     text = ui.paste()
                     if text.strip():
                         turn(text)
+                elif text == '/next':
+                    inbox = active_inbox()
+                    inbox.resume()
+                    items = inbox.list('steer') or inbox.list('followup')
+                    if items:
+                        turn(items[0]['text'], queued_item=items[0])
+                    else:
+                        ui.write('No queued input.')
+                elif queue_command(active_inbox(), text, ui.write):
+                    pass
                 elif text.startswith('/'):
                     command(text, agent, workspace, ui)
                 else:
                     turn(text)
-            except PersistenceError:
+            except (PersistenceError, InputOwnershipError):
                 raise
             except KeyboardInterrupt:
                 ui.write('Input interrupted. Unsent draft text is kept in the editor. Use exit or Ctrl+D to quit.')

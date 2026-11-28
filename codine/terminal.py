@@ -14,6 +14,8 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',
+    '/drop': 'Remove a queued item', '/next': 'Run the next queued item', '/stop': 'Cancel the busy turn',
     '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
     '/export': 'Review and export a redacted transcript', '/import': 'Review and import historical conversation',
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
@@ -99,6 +101,7 @@ class Terminal:
         self.tool_started = None
         self.tool_target = ''
         self.draft = ""
+        self.busy_reader = None
         self.editor = None
         if self.interactive:
             bindings = KeyBindings()
@@ -174,7 +177,11 @@ class Terminal:
         mode = {'ask': 'ask before edits', 'plan': 'PLAN · read only', 'auto-edit': 'auto-edit'}.get(state.get('mode'), 'ask')
         # Mode is first so narrow terminals never hide the execution policy.
         execution = 'Docker' if state.get('executor') == 'docker' else 'host'
-        text = f'  {execution} · {mode}  ·  {state.get("tokens", 0):,} tokens'
+        busy = ''
+        if self.busy_reader:
+            inbox = self.busy_reader.inbox
+            busy = ('STOPPING' if inbox.cancel.is_set() else 'BUSY') + f' · {len(inbox.list())} queued · '
+        text = f'  {busy}{execution} · {mode}  ·  {state.get("tokens", 0):,} tokens'
         model = state.get('model', '')
         if model:
             text += '  ·  ' + model
@@ -206,6 +213,12 @@ class Terminal:
             raise
 
     def approve(self, description):
+        if self.busy_reader:
+            with self.busy_reader.approval():
+                return self._approve(description)
+        return self._approve(description)
+
+    def _approve(self, description):
         self.emit('end_stream', '')
         self.line()
         self.panel('Review required', str(description).splitlines() + ['', 'yes = approve    anything else = decline'], 'accent')
