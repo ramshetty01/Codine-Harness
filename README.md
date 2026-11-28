@@ -54,6 +54,8 @@ cp .env.example .env
 
 Add your NVIDIA API key to `.env`. **Do not replace an existing `.env` when updating.**
 
+Alternatively, use `codine auth set-key nvidia` or `codine auth login openrouter` to save provider API credentials in a private, unencrypted user-owned file. Existing shell/`.env` keys take precedence. See [authentication, status and logout](docs/AUTHENTICATION.md).
+
 ```dotenv
 NVIDIA_API_KEY=your-key
 NVIDIA_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b

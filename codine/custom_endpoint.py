@@ -63,8 +63,14 @@ def configure(settings,endpoint=None,acknowledged=None):
     if choice is not True and choice!='true':
         raise ValueError('Custom costs are unknown. Explicitly set --allow-unmetered-custom or trusted CODINE_CUSTOM_UNMETERED=true; no USD cap can be enforced.')
     key=trusted(settings,'api_key','CODINE_CUSTOM_API_KEY','')
+    from .credentials import CredentialStore
+    store = CredentialStore()
+    if settings.sources['api_key'] == 'default':
+        key = store.get('custom', endpoint)
+        if key: settings.sources['api_key'] = 'user credential store'
     forbidden=tuple(value for layer in (settings.shell,settings.user,settings.legacy,settings.project)
                     for name,value in layer.items() if name in ('OPENROUTER_API_KEY','NVIDIA_API_KEY') and value)
+    forbidden += tuple(value for value in (store.get('openrouter'), store.get('nvidia')) if value)
     validate_key(key,forbidden)
     if not key:
         host=urlsplit(endpoint).hostname

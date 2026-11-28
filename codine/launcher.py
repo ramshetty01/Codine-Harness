@@ -19,5 +19,9 @@ def main(argv=None):
     if problem:
         print(problem, file=sys.stderr)
         return 2
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == 'auth':
+        from .auth_cli import main as auth_main
+        return auth_main(argv[1:])
     from .cli import main as run
     return run(argv)

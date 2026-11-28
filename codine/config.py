@@ -102,6 +102,10 @@ class Config:
             if endpoint is not None or allow_unmetered_custom:
                 raise ValueError('--endpoint/--allow-unmetered-custom require --provider custom.')
             key = settings.get('api_key', 'OPENROUTER_API_KEY' if provider == 'openrouter' else 'NVIDIA_API_KEY', '')
+            if settings.sources['api_key'] == 'default':
+                from .credentials import CredentialStore
+                key = CredentialStore().get(provider)
+                if key: settings.sources['api_key'] = 'user credential store'
         settings.sources['project'] = 'CLI/current directory'
         result = cls(project=project, model=chosen, provider=provider, api_key=key,
                      budget_usd=budget, request_budget_usd=cap,
@@ -110,7 +114,7 @@ class Config:
         return result
 
     def redactor(self):
-        return Redactor((*Redactor.environment().secrets, *self._secret_values, self.api_key))
+        return Redactor((*Redactor.environment().secrets, *self._secret_values, *self._custom_forbidden_keys, self.api_key))
 
 
 
