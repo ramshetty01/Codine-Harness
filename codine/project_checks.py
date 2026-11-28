@@ -88,7 +88,7 @@ class ProjectChecks:
                     for name in dict.fromkeys(re.findall(r'^(test|check|lint|typecheck|type-check)\s*:(?![=])', text, re.M)):
                         emit('typecheck' if name.startswith('type') else ('test' if name in ('test', 'check') else 'lint'),
                              ['make', name], 'Explicit Make target; recipes may run arbitrary commands')
-            except (OSError, ValueError, UnicodeError, configparser.Error):
+            except (OSError, ValueError, UnicodeError, configparser.Error, RecursionError):
                 warnings.append({'source': relative, 'reason': 'Configuration unavailable, excluded, malformed, or too large; no command inferred.'})
         # Bound process-local catalog; old IDs become unusable after each discovery.
         self.candidates = {row['id']: row for row in candidates[:64]}
@@ -122,7 +122,15 @@ class ProjectChecks:
             self._unchanged(row)
             if docker and getattr(run, 'snapshot_hashes', {}).get(row['source']) != row['source_sha256']:
                 raise ValueError('Approved snapshot configuration differs from discovery. Discover checks again.')
-            outcome = run(None, getattr(self.workspace, 'command_output', None))
+            try:
+                outcome = run(None, getattr(self.workspace, 'command_output', None))
+            except OSError:
+                # Missing runtimes, launch permissions and OS transport failures
+                # are not test failures or proof that any check completed. Avoid
+                # reflecting arbitrary exception text (possibly private paths).
+                outcome = {'status': 'execution_error', 'exit_code': None,
+                           'stdout': '', 'stderr': '',
+                           'reason': 'Command could not be executed or its transport failed. Check the selected runtime and environment.'}
         else:
             outcome = run
         status = outcome.get('status')

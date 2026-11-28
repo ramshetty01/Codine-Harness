@@ -129,3 +129,21 @@ class ProjectCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'snapshot configuration'):
                 self.checks.run(ident, files=['pytest.ini'])
         run.assert_not_called()
+
+    def test_missing_runtime_is_recorded_as_not_verified(self):
+        (self.root / 'pytest.ini').write_text('')
+        ident = self.checks.discover()['checks'][0]['id']
+        with patch('codine.tools.subprocess.Popen', side_effect=FileNotFoundError('private executable path')):
+            result = self.checks.run(ident)
+        self.assertEqual(result['classification'], 'not_verified')
+        self.assertEqual(result['outcome']['status'], 'execution_error')
+        self.assertIsNone(result['outcome']['exit_code'])
+        self.assertEqual(self.checks.results[-1]['classification'], 'not_verified')
+        self.assertNotIn('private executable path', json.dumps(result))
+
+    def test_deeply_nested_json_is_reported_as_unavailable(self):
+        (self.root / 'package.json').write_text('[' * 2000 + '0' + ']' * 2000)
+        result = self.checks.discover()
+        self.assertEqual(result['checks'], [])
+        self.assertEqual(len(result['warnings']), 1)
+        self.ws.approve.assert_not_called()

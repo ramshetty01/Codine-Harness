@@ -21,7 +21,7 @@ Discovery uses existing file exclusions and permissions, skips automatically rea
 
 Execution uses the same host/Docker policy, planning-mode restriction, profiles, output cap, timeout and cleanup path as `run_command`. Docker requires an explicit snapshot file list containing the source configuration; no implicit whole-repository staging or host fallback occurs. Source hash and executor are returned with each result.
 
-A result is `passed` only for a completed invocation with integer exit code zero. A completed nonzero exit is `failed`. Decline, denial, timeout, cancellation and incomplete statuses are `not_verified`, including timeouts with an otherwise zero exit. This verifies the invocation, not test coverage, assertion counts, task completion, or model quality. Discovery alone is never a passing check.
+A result is `passed` only for a completed invocation with integer exit code zero. A completed nonzero exit is `failed`. Unavailable runtimes/OS transport errors (`execution_error`), decline, denial, timeout, cancellation and incomplete statuses are `not_verified`, including timeouts with an otherwise zero exit. This verifies the invocation, not test coverage, assertion counts, task completion, or model quality. Discovery alone is never a passing check.
 
 Tests cover multi-language recognition, no execution during discovery, malformed/private configuration, directory scope, stale changes before/after approval, planning/decline, real Make-launched Python pass/failure, timeout classification, and Docker snapshot dispatch using its existing executor interface.
 
