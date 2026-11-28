@@ -50,7 +50,9 @@ Receipts live at `~/.config/codine/extension-trust/receipts.json`, independent o
 project dotenv and checkout settings. State and its lock must be user-owned
 regular files with exactly `0600` permissions. Parent directories are traversed
 without following links and reject shared writes, except root-owned sticky
-ancestor directories. Updates use a lock and atomic replacement. Model file tools
+ancestor directories. Updates use a nonblocking lock and atomic replacement. A busy store fails closed
+with a retry message instead of waiting indefinitely. Custom store roots used by
+embedders are protected in the workspace at review and allowance time too. Model file tools
 protect this entire root, including when the project itself is the user's home.
 The protection applies to Codine file tools; it is not a restriction on trusted
 host commands or extension Python code running with the user's privileges.

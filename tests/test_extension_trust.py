@@ -136,6 +136,42 @@ class ExtensionTrustTests(unittest.TestCase):
         command('revoke '+digest, agent, self.ws, ui)
         self.assertEqual(self.store.list(), [])
 
+    def test_held_store_lock_fails_closed_without_waiting(self):
+        import subprocess
+        import sys
+        import time
+        snapshot = self.review()
+        self.store.allow(self.ws, snapshot['digest'], lambda _:True)
+        script = ('import fcntl,sys; '
+                  'f=open(sys.argv[1], "r+"); fcntl.flock(f,fcntl.LOCK_EX); '
+                  'print("locked",flush=True); sys.stdin.read()')
+        child = subprocess.Popen([sys.executable, '-I', '-c', script, str(self.store.root/'lock')],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'locked')
+            start = time.monotonic()
+            with self.assertRaisesRegex(ValueError, 'busy'):
+                self.store.trusted(snapshot)
+            with self.assertRaisesRegex(ValueError, 'busy'):
+                self.store.revoke(snapshot['digest'])
+            self.assertLess(time.monotonic()-start, 2)
+        finally:
+            child.communicate('', timeout=5)
+        self.assertTrue(self.store.trusted(snapshot))
+
+    def test_custom_store_inside_project_is_protected_on_review_and_allow(self):
+        store = ExtensionTrustStore(self.root/'custom-trust')
+        snapshot = store.review(self.ws, 'extension/extension.json')
+        for operation in ('read', 'write'):
+            with self.assertRaisesRegex(ValueError, 'protected'):
+                self.ws.resolve('custom-trust/receipts.json', operation=operation)
+        # A fresh workspace must acquire the same protection at allow time.
+        fresh = Workspace(self.root, lambda _:True, lambda _:None)
+        self.assertTrue(store.allow(fresh, snapshot['digest'], lambda _:True))
+        for operation in ('read', 'write'):
+            with self.assertRaisesRegex(ValueError, 'protected'):
+                fresh.resolve('custom-trust/receipts.json', operation=operation)
+
     def test_atomic_write_failure_preserves_prior_grants(self):
         snapshot = self.review(); self.store.allow(self.ws, snapshot['digest'], lambda _:True)
         with patch('codine.extension_trust.os.replace', side_effect=OSError('disk failure')):

@@ -49,7 +49,10 @@ class ExtensionTrustStore:
             if info.st_uid != os.getuid(): raise ValueError('Trust directory must belong to this user.')
             lock = os.open('lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
             self._private(os.fstat(lock))
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise ValueError('Trust store is busy in another process; retry after it finishes.') from None
             yield directory
         finally:
             if lock is not None: os.close(lock)
@@ -90,12 +93,14 @@ class ExtensionTrustStore:
             except FileNotFoundError: pass
 
     def review(self, workspace, manifest_path):
+        workspace.protected_roots.add(self.root.resolve())
         snapshot = snapshot_extension(workspace, manifest_path)
         if len(self.reviews) >= 16: self.reviews.pop(next(iter(self.reviews)))
         self.reviews[snapshot['digest']] = binding(snapshot)
         return snapshot
 
     def allow(self, workspace, digest, approve):
+        workspace.protected_roots.add(self.root.resolve())
         reviewed = self.reviews.get(digest)
         if reviewed is None or reviewed['project'] != str(workspace.root):
             raise ValueError('Review this extension in the current process and project before allowing its digest.')
