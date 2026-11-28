@@ -251,6 +251,8 @@ class IsolatedTrees:
             recheck()  # Approvals cannot silently authorize newer child bytes.
             return decision
         target=self._workspace(self.parent.root, approve=approve)
+        # Integration is a fresh group, owned by the initiating parent session.
+        target.change_session_id=getattr(self.parent, 'change_session_id', None)
         recheck()
         entries=[{'path':row['path'], 'before':row['before'], 'after':None if row['content'] is None else
                   {'data':row['content'].encode(), 'mode':row['mode']}} for row in proposal['changes']]

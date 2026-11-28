@@ -62,8 +62,8 @@ Stale ownership is not expired automatically. Reviewed isolated-source integrati
 holds the same lock across approval, conflict checking, and application. A worker
 cannot acquire ownership midway through that integration. This is not protection
 against arbitrary host programs, all ordinary file edits, or a malicious process
-running as the same user. P3 still provides isolated source snapshots, not linked
-Git worktrees or automatic integration.
+running as the same user. P3 supports isolated source snapshots and explicit detached linked Git worktrees.
+Worker plans do not automatically integrate either kind of editing tree.
 
 ## Offline acceptance
 

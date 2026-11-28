@@ -238,3 +238,25 @@ class IsolationTests(unittest.TestCase):
         self.manager.integrate(review_first['review'])
         with self.assertRaisesRegex(ValueError,'conflict'):self.manager.integrate(review_second['review'])
         self.assertEqual((self.root/'a.py').read_text(),'first=1\n')
+
+    def test_lifecycle_integration_preserves_session_owner_and_all_resource_paths(self):
+        from codine.worker_resources import acquire,release
+        self.parent.change_session_id='parent-session'
+        self.parent.change_group_id='unrelated-parent-group'
+        tree=self.tree();root=Path(tree['path'])
+        (root/'a.py').rename(root/'renamed.py');(root/'b.py').unlink()
+        review=self.manager.review(tree['id'],new_paths=['renamed.py'])
+        for path in ('a.py','b.py','renamed.py'):
+            tokens=acquire(self.parent,'other-parent',[{'id':'other','resources':[path]}])
+            with self.assertRaisesRegex(ValueError,'conflicts'):self.manager.integrate(review['review'])
+            self.assertEqual((self.root/'a.py').read_text(),'a=1\n')
+            self.assertFalse((self.root/'renamed.py').exists())
+            release(self.parent,'other-parent',tokens)
+        result=self.manager.integrate(review['review'])
+        record=ChangesetStore(self.root).load(result['changeset'])
+        self.assertEqual(record['session_id'],'parent-session')
+        self.assertNotEqual(result['changeset'],'unrelated-parent-group')
+        self.assertEqual(rewind(self.parent,result['changeset'])['status'],'rewound')
+        self.assertEqual((self.root/'a.py').read_text(),'a=1\n')
+        self.assertEqual((self.root/'b.py').read_text(),'b=1\n')
+        self.assertFalse((self.root/'renamed.py').exists())
