@@ -114,3 +114,30 @@ build/smoke test, and five repository repair fixtures. See
 [MILESTONE2_ACCEPTANCE.md](MILESTONE2_ACCEPTANCE.md) for reproducible evidence and
 its Docker/Python scope. A 336-test integration run passed before the final Git
 filter regressions and build test; targeted Git tests then passed 9/9.
+
+## Daily workflow continuation
+
+The next parallel batch adds reviewed transcript export/import (S2), OpenRouter
+stream reconstruction (M1), configured repository check discovery/execution (R6),
+and recoverable file lifecycle operations (R3). A platform-policy audit (D3) also
+adds an early unsupported-platform error and a maintained matrix/WSL policy.
+
+- Transcripts carry validated historical conversation, not executable journals or
+  permission settings. Confirmation binds to the exact reviewed/redacted bytes.
+  Import creates a new session, preserves spending controls and captures a fresh
+  Git baseline.
+- OpenRouter streams text while withholding tool dispatch until the complete
+  batch is validated. Ordered provider reasoning state and final cost accounting
+  remain intact; interruptions and missing costs never become assumed free calls.
+- Repository checks come from explicit configuration, with source fingerprints,
+  existing execution permissions and real exit-status reporting. Docker checks
+  bind discovery to the approved snapshot's source hash. Discovery is not success,
+  and unavailable runtimes are recorded as unverified.
+- Native Windows remains unsupported. The tested macOS/Linux Python matrix is
+  explicit; WSL2 is experimental. Unsupported launchers fail before runtime state
+  or provider initialization.
+
+Details: [TRANSCRIPTS.md](TRANSCRIPTS.md),
+[OPENROUTER_STREAMING.md](OPENROUTER_STREAMING.md),
+[PROJECT_CHECKS.md](PROJECT_CHECKS.md), and [PLATFORMS.md](PLATFORMS.md).
+No inference was used for this development work.

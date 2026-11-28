@@ -25,7 +25,7 @@ class TranscriptTests(unittest.TestCase):
         self.store = SessionStore(self.root, self.redactor)
         self.agent = SimpleNamespace(session=self.session, store=self.store, redactor=self.redactor, restart_requested=True)
         self.agent.save = lambda: self.store.save(self.agent.session)
-        self.workspace = SimpleNamespace(root=self.root, read_versions={'old': 1}, read_ranges={'old': 1}, restart_requested=True)
+        self.workspace = SimpleNamespace(root=self.root, read_versions={'old': 1}, read_ranges={'old': 1}, lifecycle_versions={'old': 1}, restart_requested=True)
         self.output = []
         self.ui = SimpleNamespace(interactive=True, write=self.output.append)
 
@@ -136,5 +136,6 @@ class TranscriptTests(unittest.TestCase):
         self.run_command('export', 'out.json'); self.confirm('export')
         self.run_command('import', 'out.json'); self.confirm('import')
         self.assertNotEqual(self.agent.session.id, self.session.id)
+        self.assertEqual(self.workspace.lifecycle_versions, {})
         self.assertFalse(self.agent.restart_requested)
         self.assertIn('Git unavailable', self.output)

@@ -152,6 +152,7 @@ def command(kind, argument, agent, workspace, ui, system):
             workspace.change_session_id = replacement.id
             workspace.read_versions.clear()
             workspace.read_ranges.clear()
+            workspace.lifecycle_versions.clear()
             agent.restart_requested = False
             if hasattr(workspace, 'project_checks'):
                 workspace.project_checks.candidates.clear()
