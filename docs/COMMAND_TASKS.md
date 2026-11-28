@@ -51,16 +51,59 @@ hashes all shared source, license, task mutations, reference repairs and checker
 commands. Local reports contain held-back diagnostics; do not feed them to a model
 and then call the same cases an unseen evaluation.
 
-Scope remains partial for Q1 and R1: this is one Python module/package with five
-repair categories, not broad real-repository or multi-language coverage. The
-[escape-string-regexp repository](https://github.com/sindresorhus/escape-string-regexp)
-was also inspected (HEAD `a7f7dabaf336bda98d2166848af15d9168b10bcf`). No Node image was
-available locally, so no JavaScript fixture is claimed as verified and none is
-silently downloaded. Next coverage needs another upstream project, an explicitly
-prepared Node+Python image for the current bootstrap, language-specific builds,
-and bounded agent-driven evaluation separate from reference repair validation.
+## Second repository: python-dotenv
 
-Validation performed: all five broken/reference pairs passed their intended
-Docker checks (20 isolated command executions), with zero inference requests.
-Offline unit tests additionally reject source tampering, unsafe paths, vacuous
-baselines, identical public/final commands and timeout-as-success mistakes.
+Run `python -m codine.command_evals --offline --pack dotenv` (the default
+`--pack boltons` retains the original corpus). Both selectors use the same
+restricted Docker executor and per-attempt reports; reports also name the pack.
+
+`evals/dotenv_tasks.json` adds five tasks using the complete dependency-free
+[python-dotenv parser](https://github.com/theskumar/python-dotenv/blob/a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7/src/dotenv/parser.py),
+from release v1.2.4, exact commit
+`a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7`. The full
+[BSD-3-Clause license](https://github.com/theskumar/python-dotenv/blob/a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7/LICENSE)
+is retained as `LICENSE.txt`. Both bundled bytestrings are verified before use:
+
+- Parser SHA-256: `0bc1350444eeff987f2c22924400ad0b7727563798118c641cd4c0de55bd30d0`
+- License SHA-256: `80619b7049f08c81683ad0e01f08f257a840652dd71ee83146d36658c7d2c2b9`
+
+| Task | Category | Independent final evidence |
+| --- | --- | --- |
+| dotenv-line-provenance | Bug fix | LF, CRLF and bare-CR line numbers; exact original text; malformed-line recovery |
+| dotenv-strict-mapping | Feature | New strict/lenient mapping API; duplicate last-wins; bare versus empty values; original error line; no interpolation |
+| dotenv-extract-escapes | Refactor | Decoder moves to its own module; backward-compatible re-export and module ownership; quoting/Unicode/escape behavior |
+| dotenv-bare-key-test | Test repair | Production parser hash unchanged; both bare and explicit-empty assertions pass; an injected wrong parser result must fail the repaired test |
+| dotenv-interrupted-extraction | Recovery | Complete a half-applied two-module extraction; restore import contract and parsing behavior without losing unrelated support |
+
+These are Codine-authored source-derived exercises, not historical upstream
+issues. The feature adds a specified API absent from the pinned source; the other
+tasks deliberately mutate or reorganize the pinned source/tests. Public tests are
+real unittest commands. Final checks are independent commands supplied only to
+the final container, including explicit expected outputs and structural checks.
+The test-repair oracle introduces a wrong bare-key result to reject assertion
+removal or weakened checks. Recovery means repairing a partially applied source
+change here; durable agent-session interruption/replay behavior has its separate
+[long-task gate](MILESTONE3_ACCEPTANCE.md).
+
+Validation: both packs have five intended baseline/reference pairs. The new
+python-dotenv pack passed 20 isolated command executions: every baseline failed
+the final oracle, and each reference passed public and final checks. Zero model
+requests were made. `tests.test_dotenv_corpus` verifies provenance, license/source
+tampering, candidate/final-source separation and vacuous/timeout failure handling;
+its Docker acceptance method requires `CODINE_DOCKER_TESTS=1`.
+
+## Remaining scope
+
+This is now ten tasks across two real upstream Python projects and all five
+categories, still a small synthetic source-derived corpus. It does not represent
+large application repositories, mined historical issues, multi-language builds,
+or live model solve rates. The command runner validates references; it still has
+no agent/model integration. The two older `repository_tasks.json` exercises are
+synthetic package-import tests and are not counted as upstream repository tasks.
+
+The [escape-string-regexp repository](https://github.com/sindresorhus/escape-string-regexp)
+was previously inspected (HEAD `a7f7dabaf336bda98d2166848af15d9168b10bcf`). No Node
+image is installed for its verification; none is silently pulled. Additional
+languages require explicitly prepared images and independently verified oracles.
+Do not feed local final-check reports or reference replacements to a model and
+subsequently describe those same cases as unseen or held-out evaluation.

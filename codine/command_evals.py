@@ -13,6 +13,8 @@ from .repository_executor import RepositoryExecutor
 from .staging import StagingLimits, _validate_path, snapshot_repository
 
 
+PACK_FILES = {'boltons': 'command_tasks.json', 'dotenv': 'dotenv_tasks.json'}
+
 def validate_pack(pack):
     if pack.get('version') != 1 or not isinstance(pack.get('tasks'), list) or not pack['tasks']:
         raise ValueError('Expected nonempty version 1 command task pack.')
@@ -20,11 +22,13 @@ def validate_pack(pack):
     if not re.fullmatch('[a-f0-9]{40}', provenance.get('commit', '')) or not provenance.get('license'):
         raise ValueError('A full upstream commit and license are required.')
     common = pack.get('common_files')
-    if not isinstance(common, dict) or provenance.get('staged_license_path') not in common:
+    if not isinstance(common, dict) or not isinstance(common.get(provenance.get('staged_license_path')), str):
         raise ValueError('Upstream license must be retained in staged files.')
     source = common.get(provenance.get('source_path'))
     if not isinstance(source, str) or hashlib.sha256(source.encode()).hexdigest() != provenance.get('source_sha256'):
         raise ValueError('Pinned source hash does not match bundled source.')
+    if provenance.get('license_sha256') is not None and hashlib.sha256(common[provenance['staged_license_path']].encode()).hexdigest() != provenance['license_sha256']:
+        raise ValueError('Pinned license hash does not match bundled license.')
     seen = set()
     for task in pack['tasks']:
         if not isinstance(task.get('id'), str) or not task['id'] or task['id'] in seen:
@@ -84,11 +88,13 @@ def run_task(pack, task, executor):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', required=True)
+    parser.add_argument('--pack', choices=tuple(PACK_FILES), default='boltons', help='Pinned repository-derived task corpus')
     parser.add_argument('--image', default='python:3.12-slim', help='Must already exist locally; never pulled')
     parser.add_argument('--task', action='append')
     parser.add_argument('--report-dir', default='.codine/evals/command-attempts')
     args = parser.parse_args(argv)
-    pack = validate_pack(json.loads(eval_resource('command_tasks.json').read_text()))
+    fixture = PACK_FILES[args.pack]
+    pack = validate_pack(json.loads(eval_resource(fixture).read_text()))
     selected = [task for task in pack['tasks'] if not args.task or task['id'] in args.task]
     if not selected or (args.task and set(args.task) - {task['id'] for task in selected}):
         parser.error('Unknown or empty task selection.')
@@ -98,7 +104,7 @@ def main(argv=None):
                    'upstream': pack['provenance']} for task in selected]
     report = {'version': 1, 'mode': 'offline-reference-repair', 'inference_requests': 0,
               'meaning': 'Fixture/executor verification, NOT model solve rate.',
-              'upstream': pack['provenance'],
+              'pack': args.pack, 'upstream': pack['provenance'],
               'provenance': evaluation_manifest(identities, mode='offline-reference-repair', image=executor.image),
               'results': []}
     directory = Path(args.report_dir)
