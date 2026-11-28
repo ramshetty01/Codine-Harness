@@ -109,11 +109,15 @@ class Agent:
         return True
 
     def run_turn(self, text, *, queued_item=None):
+        import threading
         from .supervisor import require_resolved
-        require_resolved(self.session)
-        if self.session.delegation.get('role') == 'child' and not getattr(self, '_supervised_worker', False):
-            raise ValueError('Child sessions are archival; execute only through their parent supervisor.')
-        self._in_turn = True
+        with self.__dict__.setdefault('_child_supervision_lock', threading.RLock()):
+            require_resolved(self.session)
+            if getattr(self, '_child_supervision_active', False):
+                raise ValueError('Parent turn blocked while supervised workers own completion dispatch.')
+            if self.session.delegation.get('role') == 'child' and not getattr(self, '_supervised_worker', False):
+                raise ValueError('Child sessions are archival; execute only through their parent supervisor.')
+            self._in_turn = True
         self._save_failed = False
         self._terminal_emitted = False
         self._phase = 'preflight'

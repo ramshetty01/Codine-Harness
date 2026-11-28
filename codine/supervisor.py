@@ -62,9 +62,10 @@ class Supervisor:
     def __init__(self,agent,workspace,*,worker_factory=None,cancel_event=None,clock=time.time):
         self.agent,self.workspace=agent,workspace
         self.lock=agent.__dict__.setdefault("_child_supervision_lock",threading.RLock())
+        self.close_lock=threading.Lock()
         self.worker_factory=worker_factory
         self.cancel_event=cancel_event or threading.Event()
-        self.clock=clock;self.worker=None;self.running=False;self.expired=False;self.deadline=None
+        self.clock=clock;self.worker=None;self.running=False;self.expired=False;self.deadline=None;self.parallel=False
     def check(self):
         if self.deadline is not None and self.clock()>=self.deadline:self.expired=True;self.cancel_event.set()
         parent_cancel=getattr(getattr(self.agent,'inbox',None),'cancel',None)
@@ -72,9 +73,10 @@ class Supervisor:
     def cancel(self):
         self.cancel_event.set()
         # Best effort interrupt of an active socket. No hard process-kill claim.
-        if self.running:
-            try:self.agent.provider.close()
-            except Exception:pass
+        with self.close_lock:
+            if self.running:
+                try:self.agent.provider.close()
+                except Exception:pass
     def _preflight(self):
         from .session_forks import require_idle,settled_shared_budget
         require_resolved(self.agent.session);require_idle(self.agent,self.workspace)
@@ -99,6 +101,7 @@ class Supervisor:
         try:
             if len(tasks)==1:return [self._run(tasks[0],limits=limits)]
             children=[Supervisor(self.agent,self.workspace,worker_factory=self.worker_factory,cancel_event=self.cancel_event,clock=self.clock) for _ in tasks]
+            for child in children:child.parallel=True
             with ThreadPoolExecutor(max_workers=2,thread_name_prefix="codine-reader") as pool:
                 futures={pool.submit(child._run,task,limits=limits):index for index,(child,task) in enumerate(zip(children,tasks))}
                 results=[None]*len(tasks)
@@ -110,7 +113,8 @@ class Supervisor:
                     raise
             return results
         finally:
-            with self.lock:self.agent._child_supervision_active=False;self.running=False
+            with self.close_lock:self.running=False
+            with self.lock:self.agent._child_supervision_active=False
 
     def _run(self,task,*,limits=None):
         from .subagents import ReadOnlyWorker,WorkerLimits
@@ -126,13 +130,17 @@ class Supervisor:
         store=SessionStore(self.workspace.root,self.agent.redactor)
         timer=None;self.running=True
         try:
-            self.worker=(self.worker_factory or ReadOnlyWorker)(self.workspace,replace(self.agent.config,model=self.agent.session.model),store,
+            def expired():self.expired=True;self.cancel()
+            timer=threading.Timer(limits.max_seconds,expired);timer.daemon=True;timer.start()
+            parent_workspace=self.workspace
+            if self.parallel:
+                parent_workspace=copy.copy(self.workspace)
+                parent_workspace.approve=lambda prompt: False  # No terminal prompts on child threads.
+            self.worker=(self.worker_factory or ReadOnlyWorker)(parent_workspace,replace(self.agent.config,model=self.agent.session.model),store,
                 complete=AccountedCompletion(self,row),redactor=self.agent.redactor,cancel_event=self.cancel_event,
                 limits=limits,parent_link={'role':'child','parent':self.agent.session.id,'run':row['id']})
             with self.lock:
                 row['child']=self.worker.session.id;row['status']='running';self.agent.save()
-            def expired():self.expired=True;self.cancel()
-            timer=threading.Timer(limits.max_seconds,expired);timer.daemon=True;timer.start()
             self.check();result=self.worker.run(task);self.check()
             with self.lock:row['status']='completed';self.agent.save()
             return result
@@ -143,11 +151,18 @@ class Supervisor:
                 self.agent.save()
             raise
         finally:
-            if timer:timer.cancel()
+            if timer:
+                timer.cancel()
+                timer.join()
             if self.worker:self.worker.close()
             else:store.close()
-            self.worker=None;self.running=False;self.deadline=None
+            with self.close_lock:self.running=False
+            self.worker=None;self.deadline=None
     def recover(self,run_id):
+        with self.lock:
+            if getattr(self.agent,'_child_supervision_active',False):raise ValueError('A supervisor still owns this parent.')
+            return self._recover(run_id)
+    def _recover(self,run_id):
         """Explicitly retire a dead-process link; never replay or settle unknown cost."""
         if self.running:raise ValueError('A supervised worker is still running.')
         from .session_forks import settled_shared_budget

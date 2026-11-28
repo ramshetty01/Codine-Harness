@@ -121,3 +121,10 @@ class SupervisorTests(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):self.supervisor.run_many(['one','two'])
         self.provider.complete.assert_not_called()
         self.assertTrue(all(r['status']=='cancelled' for r in self.session.delegation['runs']))
+    def test_parent_turn_and_other_supervisor_recovery_block_during_lease_gap(self):
+        self.agent._child_supervision_active=True
+        self.assertEqual(self.session.delegation,{})
+        with self.assertRaisesRegex(ValueError,'own completion'):self.agent.run_turn('racing parent turn')
+        with self.assertRaisesRegex(ValueError,'owns this parent'):Supervisor(self.agent,self.ws).recover('a'*32)
+        with self.assertRaisesRegex(ValueError,'active supervised'):Supervisor(self.agent,self.ws).run('other worker')
+        self.provider.complete.assert_not_called()

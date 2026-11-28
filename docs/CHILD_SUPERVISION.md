@@ -39,3 +39,9 @@ OS-process deadline. The synchronous run remains active until it unwinds, and
 its durable link remains running if the process dies. Do not claim hard process
 isolation or arbitrary uncooperative-worker termination. All verification uses
 fake providers; no live API evaluation has run for this milestone.
+
+Parallel readers never invoke the terminal approval callback from their threads.
+An ASK read rule is declined and reported in the child's tool result. Authorize
+required read paths explicitly in the parent policy before starting parallel
+workers, or use one foreground worker for interactive approval. This does not
+auto-allow access, grant parent read receipts, or treat task text as authorization.

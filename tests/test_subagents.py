@@ -207,3 +207,37 @@ class SubagentTests(unittest.TestCase):
         self.workspace.approve.assert_called_once()
         self.assertNotIn('declined-content',json.dumps(self.provider.requests))
         self.assertEqual(worker.result()['sources'],[])
+
+    def test_actual_two_worker_supervisor_disjoint_context_and_single_parent_allowance(self):
+        from codine.supervisor import Supervisor
+        barrier=threading.Barrier(2)
+        class Together(ReadOnlyWorker):
+            def run(self,task):barrier.wait(timeout=3);return super().run(task)
+        self.replies=[{'role':'assistant','content':'First independent review'}, {'role':'assistant','content':'Second independent review'}]
+        supervisor=Supervisor(self.parent,self.workspace,cancel_event=self.event,worker_factory=Together)
+        results=supervisor.run_many(['Review alpha only','Review beta only'])
+        self.assertEqual(len(results),2);self.assertTrue(all(result['outcome']=='completed' for result in results))
+        self.assertEqual(self.session.billing['spent'],'0.02');self.assertEqual(self.session.usage_details['requests'],2)
+        contexts=[json.dumps(messages) for messages,schemas in self.provider.requests]
+        self.assertEqual(sum('Review alpha only' in value for value in contexts),1)
+        self.assertEqual(sum('Review beta only' in value for value in contexts),1)
+        self.assertTrue(all('PRIVATE PARENT CONVERSATION' not in value for value in contexts))
+        for result in results:
+            child=self.store._read_session(result['session'],repair_pending=False)
+            self.assertEqual(child.delegation['parent'],self.session.id)
+            self.assertEqual(child.usage_details['requests'],1)
+        self.assertFalse(self.parent._child_supervision_active)
+
+    def test_parallel_read_ask_never_prompts_from_worker_threads(self):
+        from codine.supervisor import Supervisor
+        from codine.command_policy import CommandPolicy,FileRule
+        (self.root/'review.txt').write_text('private review contents')
+        self.workspace.policy_interactive=True
+        self.workspace.command_policy=CommandPolicy(self.root/'policy.json',file_rules=(FileRule(id='ask',action='ask',operation='read',project=str(self.root),match='exact',path='review.txt'),))
+        self.workspace.approve=Mock(side_effect=AssertionError('parallel UI approval forbidden'))
+        self.replies=[call('read_file',{'path':'review.txt'},'a'),call('read_file',{'path':'review.txt'},'b'),
+                      {'role':'assistant','content':'Cannot read without approval'},{'role':'assistant','content':'Cannot read without approval'}]
+        results=Supervisor(self.parent,self.workspace,cancel_event=self.event).run_many(['Inspect review.txt A','Inspect review.txt B'])
+        self.workspace.approve.assert_not_called()
+        self.assertEqual(len(results),2)
+        self.assertNotIn('private review contents',json.dumps(self.provider.requests))
