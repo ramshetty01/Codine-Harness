@@ -120,6 +120,12 @@ class Agent:
 
     def complete(self, messages, schemas, ledger, emit=None):
         """Normal and summary calls use exactly the same accounting boundary."""
+        self._phase = 'preflight'
+        preflight = getattr(self.provider, 'preflight', None)
+        if callable(preflight):
+            plan = preflight(messages, schemas, self.session.model)
+            if isinstance(getattr(plan, 'note', None), str):
+                self.emit('status', plan.note)
         self._phase = 'accounting'
         if ledger and getattr(self, 'shared_budget_path', None) is not None:
             from .interactive_budget import complete_shared

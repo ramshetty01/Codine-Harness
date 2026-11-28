@@ -133,10 +133,10 @@ class FailurePolicyTests(unittest.TestCase):
         self.assertEqual(clock.sleeps, [0.5, 1])
 
     def test_sdk_completion_auto_retries_stay_disabled(self):
-        from types import SimpleNamespace
+        from pathlib import Path
+        from codine.config import Config
         from codine.provider import NvidiaProvider, OpenRouterProvider
-        config = SimpleNamespace(api_key='fake-only', request_limits=lambda _: (4096, 512),
-                                 router_max_price=None, show_reasoning=False)
+        config = Config(Path.cwd(), api_key='fake-only', max_tokens=512)
         for adapter in (NvidiaProvider, OpenRouterProvider):
             error = sdk_error(RateLimitError, 429)
             client = Mock(); client.chat.completions.create.side_effect = error

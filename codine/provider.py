@@ -230,7 +230,8 @@ def collect_openrouter_stream(stream, emit=None, show_reasoning=False):
 
 
 class NvidiaProvider:
-    def __init__(self, config):
+    def __init__(self, config, capability_declarations=None):
+        self.capability_declarations = capability_declarations
         self.config = config
         self.client = None
 
@@ -238,24 +239,30 @@ class NvidiaProvider:
         if self.client:
             self.client.close()
 
+    def preflight(self, messages, schemas, model):
+        from .capabilities import declarations, plan_request
+        records = (self.capability_declarations or declarations)(self.config.project)
+        plan = plan_request(self.config, model, schemas, declared=records.get('nvidia', {}).get(model), provider='nvidia')
+        self.last_capabilities = plan
+        return plan
+
     def complete(self, messages, schemas, model, emit):
         if not self.config.api_key:
             raise ValueError('Set NVIDIA_API_KEY in .env. Offline commands work without a key.')
+        plan = self.preflight(messages, schemas, model)
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url=BASE_URL, timeout=120.0, max_retries=0)
         with self.client.chat.completions.create(
-            model=model, messages=messages, **({'tools': schemas} if schemas else {}),
-            temperature=1, top_p=0.95, max_tokens=self.config.request_limits(model)[1],
-            parallel_tool_calls=True, seed=42,
-            extra_body={'chat_template_kwargs': {'enable_thinking': True}},
-            stream=True, stream_options={'include_usage': True},
+            model=model, messages=messages, **plan.kwargs,
         ) as stream:
             return collect_stream(stream, emit, self.config.show_reasoning)
 
 
 class OpenRouterProvider:
     """Stream presentation text while reconstructing validated assistant/tool messages."""
-    def __init__(self, config):
+    def __init__(self, config, capability_record=None, capability_declarations=None):
+        self.capability_record = capability_record
+        self.capability_declarations = capability_declarations
         self.config = config
         self.client = None
 
@@ -263,14 +270,22 @@ class OpenRouterProvider:
         if self.client:
             self.client.close()
 
+    def preflight(self, messages, schemas, model):
+        from .capabilities import cached_record, declarations, plan_request
+        read_record = self.capability_record or cached_record
+        read_declarations = self.capability_declarations or declarations
+        records = read_declarations(self.config.project)
+        plan = plan_request(self.config, model, schemas, record=read_record(model), declared=records.get('openrouter', {}).get(model))
+        self.last_capabilities = plan
+        return plan
+
     def complete(self, messages, schemas, model, emit):
         if not self.config.api_key:
             raise ValueError('Set OPENROUTER_API_KEY in .env before a live request.')
+        plan = self.preflight(messages, schemas, model)
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=120.0, max_retries=0)
         with self.client.chat.completions.create(
-            model=model, messages=messages, **({'tools': schemas} if schemas else {}),
-            max_tokens=self.config.request_limits(model)[1], stream=True,
-            extra_body={'provider': {'require_parameters': True, **({'max_price': self.config.router_max_price} if self.config.router_max_price else {})}},
+            model=model, messages=messages, **plan.kwargs,
         ) as stream:
             return collect_openrouter_stream(stream, emit, self.config.show_reasoning)
