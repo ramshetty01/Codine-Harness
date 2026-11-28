@@ -133,3 +133,56 @@ class IsolationTests(unittest.TestCase):
         self.parent.mode='plan'
         with self.assertRaisesRegex(ValueError,'planning'):self.manager.integrate(review['review'])
         self.assertEqual((self.root/'a.py').read_text(),'a=1\n')
+
+    def git_fixture(self):
+        from codine.git_worktrees import command
+        command(self.root,['init'])
+        command(self.root,['add','a.py','b.py'])
+        command(self.root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','-c','commit.gpgSign=false','commit','-m','base'])
+        return command
+
+    def test_real_linked_worktrees_pin_revision_without_checkout_hooks_or_filters(self):
+        command=self.git_fixture()
+        marker=self.home/'executed'
+        hook=self.root/'.git/hooks/post-checkout';hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\n');hook.chmod(0o755)
+        command(self.root,['config','filter.evil.clean','touch '+str(marker)])
+        command(self.root,['config','filter.evil.smudge','touch '+str(marker)])
+        command(self.root,['config','filter.evil.process','touch '+str(marker)])
+        command(self.root,['config','filter.evil.required','true'])
+        (self.root/'.gitattributes').write_text('*.py filter=evil\n')
+        (self.root/'.env').write_text('NEVER_COPY=secret')
+        first=self.manager.allocate(['a.py'],linked=True)
+        second=self.manager.allocate(['b.py'],linked=True)
+        self.assertEqual(first['kind'],'linked_git_worktree')
+        self.assertEqual(first['base_revision'],second['base_revision'])
+        self.assertTrue((Path(first['path'])/'.git').is_file())
+        self.assertFalse((Path(first['path'])/'b.py').exists())
+        self.assertFalse((Path(first['path'])/'.env').exists())
+        self.assertFalse(marker.exists())
+        self.edit(first,'a.py','a=3\n');review=self.manager.review(first['id'])
+        self.manager.integrate(review['review'])
+        self.assertEqual((self.root/'a.py').read_text(),'a=3\n')
+        self.assertEqual(self.manager.cleanup(first['id'])['status'],'cleaned')
+        self.assertFalse(Path(first['path']).exists())
+        self.assertTrue(Path(second['path']).exists())
+        self.assertEqual(command(self.root,['rev-parse','HEAD']).decode().strip(),first['base_revision'])
+        self.assertFalse(marker.exists())
+        self.manager.cleanup(second['id'])
+
+    def test_linked_creation_failure_has_explicit_cleanup_recovery(self):
+        self.git_fixture()
+        from codine.git_worktrees import attach
+        def fail_after_attach(*args):attach(*args);raise OSError('simulated failure')
+        with patch('codine.git_worktrees.attach',side_effect=fail_after_attach):
+            with self.assertRaisesRegex(ValueError,'incomplete'):self.manager.allocate(['a.py'],linked=True)
+        ident=next(self.manager.root.iterdir()).name
+        self.assertEqual(self.manager._load(ident,require_tree=False)['status'],'allocating')
+        self.assertEqual(self.manager.cleanup(ident)['status'],'cleaned')
+        self.assertEqual(self.manager.cleanup(ident)['status'],'cleaned')
+
+    def test_linked_metadata_change_refuses_cleanup(self):
+        self.git_fixture();tree=self.manager.allocate(['a.py'],linked=True)
+        pointer=Path(tree['path'])/'.git';original=pointer.read_bytes();pointer.write_bytes(original+b'\n')
+        with self.assertRaisesRegex(ValueError,'metadata changed'):self.manager.cleanup(tree['id'])
+        self.assertTrue(Path(tree['path']).exists());pointer.write_bytes(original)
+        self.manager.cleanup(tree['id'])

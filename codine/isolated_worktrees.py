@@ -46,7 +46,7 @@ class IsolatedTrees:
             raise ValueError('Invalid isolated tree ID.')
         return self.root / ident
 
-    def _load(self, ident):
+    def _load(self, ident, *, require_tree=True):
         location = self._ident(ident)
         with directory(location) as fd:
             info = os.fstat(fd)
@@ -57,8 +57,9 @@ class IsolatedTrees:
             raw = _read_file(fd, ('base.json',), 65536, validate=private)
             try: record = json.loads(raw)
             except (ValueError, UnicodeError): raise ValueError('Invalid isolated tree receipt.') from None
-            tree = os.open('tree', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-            os.close(tree)
+            if require_tree:
+                tree = os.open('tree', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(tree)
         if (not isinstance(record, dict) or type(record.get('version')) is not int or record.get('version') != 1 or record.get('id') != ident
                 or record.get('project') != str(self.parent.root) or not isinstance(record.get('files'), dict)
                 or not 1 <= len(record['files']) <= 32):
@@ -69,7 +70,26 @@ class IsolatedTrees:
             _validate_path(name, LIMITS)
             from .changesets import validate_state
             validate_state(base)
+        if require_tree and record.get('status', 'ready') != 'ready':
+            raise ValueError('Allocation is incomplete or cleanup pending; recover cleanup before reuse.')
+        if require_tree and record.get('git'):
+            with directory(location/'tree') as fd:
+                pointer = _read_file(fd, ('.git',), 8192)
+            if hashlib.sha256(pointer).hexdigest() != record['git'].get('gitfile_sha256'):
+                raise ValueError('Linked worktree Git metadata changed.')
         return record
+
+    def _write_record(self, record):
+        with directory(self._ident(record['id'])) as fd:
+            temporary = 'pending-' + uuid.uuid4().hex
+            handle = os.open(temporary,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600,dir_fd=fd)
+            try:
+                with os.fdopen(handle,'wb') as stream:
+                    stream.write(canonical(record));stream.flush();os.fsync(stream.fileno())
+                os.replace(temporary,'base.json',src_dir_fd=fd,dst_dir_fd=fd);os.fsync(fd)
+            finally:
+                try: os.unlink(temporary,dir_fd=fd)
+                except FileNotFoundError: pass
 
     def _workspace(self, root, *, mapped=False, approve=None):
         result = Workspace(root, approve or self.parent.approve, self.parent.emit, self.parent.app_root)
@@ -89,7 +109,7 @@ class IsolatedTrees:
         self._load(ident)
         return self._workspace(self._ident(ident)/'tree', mapped=True)
 
-    def allocate(self, paths):
+    def allocate(self, paths, *, linked=False):
         if not isinstance(paths, list) or not 1 <= len(paths) <= 32: raise ValueError('Select 1–32 explicit source files.')
         files = {}; total = 0; seen = set()
         import unicodedata
@@ -105,6 +125,11 @@ class IsolatedTrees:
             if len(current['data']) > LIMITS.max_file_bytes or total > LIMITS.max_total_bytes:
                 raise ValueError('Snapshot exceeds per-file/total byte bounds.')
             files[name] = current
+        if type(linked) is not bool: raise ValueError('linked must be an explicit boolean.')
+        source = None
+        if linked:
+            from .git_worktrees import lineage
+            source = lineage(self.parent.root)
         ident = uuid.uuid4().hex
         with directory(self.root, create=True) as rootfd:
             if stat.S_IMODE(os.fstat(rootfd).st_mode) != 0o700: raise ValueError('Editing tree root must have mode 0700.')
@@ -112,11 +137,22 @@ class IsolatedTrees:
         location = self._ident(ident)
         info = self.parent.root.stat()
         record = {'version': 1, 'id': ident, 'project': str(self.parent.root),
-                  'project_identity': [info.st_dev, info.st_ino], 'files': {name:state(value) for name,value in files.items()}}
+                  'project_identity': [info.st_dev, info.st_ino], 'git': source, 'status': 'allocating', 'files': {name:state(value) for name,value in files.items()}}
         # Exclusively created private container, no repository files can choose
         # these metadata names. Materialize bytes directly: never invoke Git.
+        self._write_record(record)  # Durable recovery ID before any Git mutation.
+        if linked:
+            from .git_worktrees import attach
+            try:
+                attach(self.parent.root,location/'tree',source)
+                with directory(location/'tree') as fd:
+                    record['git']['gitfile_sha256'] = hashlib.sha256(_read_file(fd,('.git',),8192)).hexdigest()
+                self._write_record(record)
+            except BaseException as error:
+                raise ValueError('Linked allocation incomplete; cleanup allocation '+ident+' explicitly.') from error
+        else:
+            with directory(location) as fd: os.mkdir('tree', 0o700, dir_fd=fd)
         with directory(location) as fd:
-            os.mkdir('tree', 0o700, dir_fd=fd)
             for name, current in files.items():
                 target = location/'tree'/name
                 with directory(target.parent, create=True) as parent:
@@ -124,13 +160,13 @@ class IsolatedTrees:
                     with os.fdopen(handle,'wb') as stream:
                         stream.write(current['data']);stream.flush();os.fsync(stream.fileno())
                         os.fchmod(stream.fileno(), current['mode'] & 0o777)
-            handle = os.open('base.json',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600,dir_fd=fd)
-            with os.fdopen(handle,'wb') as stream:
-                stream.write(canonical(record));stream.flush();os.fsync(stream.fileno())
             os.fsync(fd)
+        record['status']='ready'
+        self._write_record(record)
         return {'id': ident, 'path': str(location/'tree'), 'base_digest': digest(record),
-                'files': sorted(files), 'kind': 'isolated_source_snapshot',
-                'notice': 'No Git branch, credentials or state copied. Integration requires explicit review and approval.'}
+                'files': sorted(files), 'kind': 'linked_git_worktree' if linked else 'isolated_source_snapshot',
+                'base_revision': source['base_revision'] if linked else None,
+                'notice': 'Selected source bytes only; no checkout or credentials. Detached Git HEAD when linked. Integration requires explicit review and approval.'}
 
     def _proposal(self, ident, new_paths):
         record = self._load(ident)
@@ -218,3 +254,23 @@ class IsolatedTrees:
         result=apply(target,proposal['changes'])
         if result.get('status')=='applied': self.reviews.pop(review,None)
         return result
+
+    def cleanup(self, ident):
+        record = self._load(ident, require_tree=False)
+        if record.get('status') == 'cleaned': return {'status':'cleaned','id':ident}
+        target=self._ident(ident)/'tree'
+        if not self.parent.approve('Delete isolated editing tree '+str(target)+' and all unintegrated edits? Parent files/branches will not be reset. Receipt is retained for recovery.'):
+            return {'status':'declined','id':ident}
+        # This API only removes registered Git worktrees. Snapshot cleanup uses
+        # descriptor-based removal in a subsequent phase, never broad rmtree.
+        if not record.get('git'):
+            raise ValueError('Snapshot-tree cleanup is not yet supported through this API.')
+        if target.exists() and record['git'].get('gitfile_sha256'):
+            with directory(target) as fd:
+                current = hashlib.sha256(_read_file(fd,('.git',),8192)).hexdigest()
+            if current != record['git']['gitfile_sha256']: raise ValueError('Child Git metadata changed; cleanup refused.')
+        record['status']='cleanup_pending';self._write_record(record)
+        from .git_worktrees import detach
+        detach(self.parent.root,target,record['git'])
+        record['status']='cleaned';self._write_record(record)
+        return {'status':'cleaned','id':ident,'receipt_retained':True}
