@@ -40,6 +40,7 @@ HELP = '''Commands
   /extensions           Discover, list, load, unload, reload or inspect trusted extensions
   /ext NAME:COMMAND     Invoke an explicitly loaded extension command
   /trust                Review, allow, list or revoke executable extension snapshots
+  /mcp                  Review and connect explicitly trusted local MCP servers
   /memory ACTION        Review proposed/approved project facts; list/show/add/approve/edit/delete
   /skills               Discover skill descriptions without loading bodies
   /skill NAME           Load a scoped skill as non-executable instruction data
@@ -214,6 +215,9 @@ def command(text, agent, workspace, ui):
     elif name == '/trust':
         from .extension_trust import command as trust_command
         trust_command(argument, agent, workspace, ui)
+    elif name == '/mcp':
+        from .mcp_client import command as mcp_command
+        mcp_command(argument,agent,workspace,ui)
     elif name == '/memory':
         from .project_memory import command as memory_command
         memory_command(argument, agent, workspace, ui)
@@ -555,6 +559,8 @@ def main(argv=None):
         from .extension_manager import ExtensionManager
         agent.extension_trust = ExtensionTrustStore()
         agent.extension_manager = ExtensionManager(workspace, agent.registry, agent.extension_trust, redactor)
+        from .mcp_client import MCPManager
+        agent.mcp_manager = MCPManager(workspace, agent.registry, redactor)
         agent.skill_manager = workspace.skills
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)
@@ -686,9 +692,10 @@ def main(argv=None):
         return 1
     finally:
         cleanup_failed = False
-        if agent is not None and getattr(agent, 'extension_manager', None):
+        for manager_name in ('extension_manager', 'mcp_manager'):
+            if agent is None or not getattr(agent, manager_name, None): continue
             try:
-                agent.extension_manager.close()
+                getattr(agent, manager_name).close()
             except (OSError, ValueError, RuntimeError) as error:
                 cleanup_failed = True
                 show_error(ui, error)

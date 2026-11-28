@@ -54,6 +54,8 @@ def restart_process(agent, app_root=APP_ROOT, execute=os.execv, plan=False):
         agent.jobs.cancel_all()
     if getattr(agent, 'extension_manager', None):
         agent.extension_manager.close()
+    if getattr(agent, 'mcp_manager', None):
+        agent.mcp_manager.close()
     agent.emit('status', 'Session saved. Restarting to load edited code and tool definitions; restrictive planning is retained when selected; auto-edit resets to ask.')
     agent.store.close()  # Release advisory lock before replacement; descriptors are noninheritable.
     try:

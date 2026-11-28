@@ -43,7 +43,8 @@ class Workspace:
         from .skills import USER_SKILLS
         from .instructions import USER_INSTRUCTIONS
         from .extension_trust import TRUST_ROOT
-        self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), USER_SKILLS.resolve(), TRUST_ROOT.resolve()}
+        from .mcp_settings import MCP_ROOT
+        self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), USER_SKILLS.resolve(), TRUST_ROOT.resolve(), MCP_ROOT.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
         self.protected_paths = {USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
