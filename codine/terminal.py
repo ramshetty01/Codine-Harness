@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/storage': 'Inspect managed storage and review retention plans',
     '/rewind-context': 'Fork conversation at a completed turn; files unchanged',
     '/fork': 'Fork this complete conversation tip', '/tree': 'Inspect branches or resume a node',
     '/packages': 'Review and install local extension packages',

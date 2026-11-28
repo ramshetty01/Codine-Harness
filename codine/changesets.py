@@ -58,6 +58,11 @@ class ChangesetStore:
         return path
 
     def save(self, record):
+        from .storage_lock import mutation
+        with mutation(self.root):
+            return self._save_storage(record)
+
+    def _save_storage(self, record):
         self.__init__(self.root)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         target = self.path(record['id'])

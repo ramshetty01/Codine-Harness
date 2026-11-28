@@ -42,6 +42,11 @@ class ArtifactStore:
                     os.close(descriptor)
 
     def put(self, tool, content):
+        from .storage_lock import mutation
+        with mutation(self.root):
+            return self._put_storage(tool, content)
+
+    def _put_storage(self, tool, content):
         raw = json.dumps({'tool': tool, 'content': content}, ensure_ascii=False, sort_keys=True).encode()
         if len(raw) > MAX_FILE:
             raise ValueError('Output exceeds the 2 MB artifact limit.')

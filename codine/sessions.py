@@ -142,6 +142,11 @@ class SessionStore:
         return path
 
     def _open_lock(self, ident):
+        from .storage_lock import mutation
+        with mutation(self.project):
+            return self._open_lock_storage(ident)
+
+    def _open_lock_storage(self, ident):
         self.path(ident)
         path = self.directory / f"{ident}.lock"
         if path.is_symlink():
@@ -168,6 +173,11 @@ class SessionStore:
         self.active = None
 
     def save(self, session):
+        from .storage_lock import mutation
+        with mutation(self.project):
+            return self._save_storage(session)
+
+    def _save_storage(self, session):
         from .usage import validate as validate_usage
         validate_usage(session.usage_details)
         from .task_plan import validate_plan

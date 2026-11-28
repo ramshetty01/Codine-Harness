@@ -59,6 +59,16 @@ class Inbox:
         return data
 
     def _replace(self, items):
+        from .storage_lock import mutation
+        try:
+            with mutation(self.path.parent.parent.parent):
+                return self._replace_storage(items)
+        except OSError as error:
+            self.failure = error
+            self.cancel.set()
+            raise
+
+    def _replace_storage(self, items):
         encoded = json.dumps(items, ensure_ascii=False).encode('utf-8')
         if len(encoded) > MAX_BYTES:
             raise ValueError('Input queue exceeds its byte limit.')

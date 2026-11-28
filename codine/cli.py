@@ -55,6 +55,7 @@ HELP = '''Commands
   /checks [DIR]         Discover configured repository checks; /checks results
   /git [diff|staged PATH] Inspect Git status or a file diff
   /rewind-context [TURN] Preview a historical conversation child; files unchanged
+  /storage              Inspect managed disk usage or review retention into trash
   /fork [TITLE]         Branch complete history at this tip; inherit active context
   /tree [ID]            Inspect bounded conversation ancestry / resume a node
   /resume ID, /new      Resume saved history / start a new session
@@ -286,6 +287,9 @@ def command(text, agent, workspace, ui):
         else:
             raise ValueError('Usage: /git [diff|staged PATH]')
         ui.write(json.dumps(result, indent=2))
+    elif name == '/storage':
+        from .storage import command as storage_command
+        storage_command(argument, agent, workspace, ui)
     elif name == '/save':
         agent.save()
         ui.write('Saved ' + session.id)
