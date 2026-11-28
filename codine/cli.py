@@ -538,6 +538,10 @@ def main(argv=None):
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
         agent.execution_credentials = execution_credentials
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
+        from .extension_trust import ExtensionTrustStore
+        from .extension_manager import ExtensionManager
+        agent.extension_trust = ExtensionTrustStore()
+        agent.extension_manager = ExtensionManager(workspace, agent.registry, agent.extension_trust, redactor)
         agent.skill_manager = workspace.skills
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)
@@ -669,6 +673,8 @@ def main(argv=None):
         return 1
     finally:
         cleanup_failed = False
+        if agent is not None and getattr(agent, 'extension_manager', None):
+            agent.extension_manager.close()
         if jobs:
             try:
                 jobs.close()

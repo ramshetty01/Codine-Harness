@@ -65,6 +65,10 @@ class Agent:
         self.save()
         self._terminal_emitted = True
         self.emit('run_end', {**self.session.last_run, 'session': self.session.id})
+        manager = getattr(self, 'extension_manager', None)
+        if outcome == 'completed' and manager is not None:
+            for warning in manager.turn_end({**self.session.last_run, 'session': self.session.id}):
+                self.emit('status', warning)
         return outcome
 
     def queued_boundary(self):
