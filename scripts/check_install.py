@@ -12,7 +12,7 @@ def main():
         raise SystemExit('Usage: python scripts/check_install.py /installed/venv/bin/python')
     python = str(Path(sys.argv[1]).resolve()) if not Path(sys.argv[1]).is_symlink() else str(Path(sys.argv[1]).absolute())
     with tempfile.TemporaryDirectory(prefix='codine-install-check-') as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         project = root / 'project'
         project.mkdir()
         guard = root / 'guard'
@@ -61,7 +61,7 @@ from pathlib import Path
 from codine.restart import restart_process
 calls=[]
 agent=SimpleNamespace(save=lambda:None, emit=lambda *args:None,
-    session=SimpleNamespace(project=str(Path.cwd()),id='install-check'),
+    session=SimpleNamespace(project=str(Path.cwd()),id='install-check',provider='nvidia'),
     store=SimpleNamespace(close=lambda:None,acquire=lambda _:None))
 restart_process(agent,execute=lambda program,argv:calls.append(argv))
 assert calls[0][1:3] == ['-m','codine']
