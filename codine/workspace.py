@@ -48,7 +48,8 @@ class Workspace:
         from .credentials import AUTH_ROOT
         self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve(), USER_SKILLS.resolve(), TRUST_ROOT.resolve(), MCP_ROOT.resolve(), AUTH_ROOT.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
-        self.protected_paths = {USER_FALLBACKS.resolve(), USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
+        from .themes import THEME_PATH
+        self.protected_paths = {THEME_PATH.resolve(), USER_FALLBACKS.resolve(), USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
 
     def _file_decision(self, operation, target):

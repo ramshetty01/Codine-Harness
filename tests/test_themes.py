@@ -114,3 +114,13 @@ raise SystemExit(main(['--provider','nvidia']))
                     saved=Path(terminal.user_home.name)/'.config/codine/theme.json'
                     self.assertEqual(json.loads(saved.read_text())['theme'],'contrast')
                 finally:terminal.close()
+
+    def test_broad_project_cannot_model_write_global_theme_or_case_alias(self):
+        from codine.workspace import Workspace
+        preference=self.root/'.config/codine/theme.json'
+        with patch('codine.themes.THEME_PATH',preference):
+            workspace=Workspace(self.root,Mock(return_value=True),Mock())
+        for path in ('.config/codine/theme.json','.CONFIG/CODINE/THEME.JSON'):
+            with self.subTest(path=path),self.assertRaises(ValueError):
+                workspace.resolve(path,operation='write')
+        self.assertFalse(preference.exists())
