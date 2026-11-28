@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/fork': 'Fork this complete conversation tip', '/tree': 'Inspect branches or resume a node',
     '/extensions': 'Discover and manage trusted extensions', '/ext': 'Invoke a loaded extension command',
     '/trust': 'Review, allow, list or revoke exact executable extension snapshots',
     '/memory': 'Review, approve, edit or delete project facts',

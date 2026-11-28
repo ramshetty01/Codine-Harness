@@ -52,6 +52,8 @@ HELP = '''Commands
   /rename TITLE         Name the current session
   /checks [DIR]         Discover configured repository checks; /checks results
   /git [diff|staged PATH] Inspect Git status or a file diff
+  /fork [TITLE]         Branch complete history at this tip; inherit active context
+  /tree [ID]            Inspect bounded conversation ancestry / resume a node
   /resume ID, /new      Resume saved history / start a new session
   /export PATH.json     Preview redacted transcript; confirm with displayed hash
   /import PATH.json     Review history for a fresh session; no tools replayed
@@ -276,8 +278,17 @@ def command(text, agent, workspace, ui):
     elif name == '/save':
         agent.save()
         ui.write('Saved ' + session.id)
-    elif name in ('/resume', '/new'):
-        agent.save()
+    elif name == '/tree':
+        from .session_forks import tree, format_tree
+        if argument:
+            return command('/resume ' + argument, agent, workspace, ui)
+        ui.write(format_tree(tree(agent.store, session.id)))
+    elif name in ('/resume', '/new', '/fork'):
+        if name == '/fork':
+            from .session_forks import fork
+            replacement = fork(agent, workspace, argument)
+        else:
+            agent.save()
         if name == '/resume':
             if not argument and ui.interactive:
                 from .session_picker import select_session
@@ -293,7 +304,7 @@ def command(text, agent, workspace, ui):
             if candidate.execution != session.execution:
                 raise ValueError('Session uses different execution settings. Start codine --resume ID to restore them safely.')
             replacement = agent.store.load(argument)
-        else:
+        elif name == '/new':
             replacement = Session.create(workspace.root, session.model, SYSTEM, provider=session.provider)
             replacement.execution = dict(session.execution)
             agent.store.save(replacement)
@@ -311,11 +322,13 @@ def command(text, agent, workspace, ui):
         if hasattr(agent, "git_inspector"):
             from .git_awareness import GitError
             try:
-                agent.git_inspector.capture("session_start" if name == "/new" else "first_inspection")
+                agent.git_inspector.capture("session_start" if name in ("/new", "/fork") else "first_inspection")
             except GitError as error:
                 ui.write(str(error))
         agent.restart_requested = False
         ui.write('Active session: ' + replacement.id)
+        if name == '/fork':
+            ui.write('Forked complete tip history; active context and settled accounting inherited. Files and project memory remain shared. No tools replayed.')
     elif name == '/clear':
         getattr(workspace, 'skill_reads', {}).clear()
         session.context_start = len(session.messages)

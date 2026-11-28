@@ -78,6 +78,7 @@ class Session:
     last_run: dict = field(default_factory=dict)
     git_baseline: dict = field(default_factory=dict)
     migration: dict = field(default_factory=dict)
+    branch: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -183,6 +184,8 @@ class SessionStore:
         if type(session.plan_revision) is not int or session.plan_revision < 0:
             raise ValueError("Invalid plan revision.")
         validate_messages(session.messages)
+        from .session_forks import validate_branch
+        validate_branch(session.branch, session)
         if session.project != str(self.project):
             raise ValueError("Session workspace mismatch.")
         self.acquire(session.id)
@@ -250,6 +253,8 @@ class SessionStore:
             if type(session.plan_revision) is not int or session.plan_revision < 0:
                 raise ValueError("Invalid plan revision.")
             validate_messages(session.messages)
+            from .session_forks import validate_branch
+            validate_branch(session.branch, session)
             if type(session.context_start) is not int or not 1 <= session.context_start <= len(session.messages):
                 raise ValueError("Invalid context boundary.")
             if session.context_start < len(session.messages) and session.messages[session.context_start].get('role') != 'user':
