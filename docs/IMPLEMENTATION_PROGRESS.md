@@ -186,3 +186,45 @@ See [STEERING_AND_QUEUE.md](STEERING_AND_QUEUE.md),
 [MODEL_CAPABILITIES.md](MODEL_CAPABILITIES.md), and
 [MODEL_CATALOG.md](MODEL_CATALOG.md). Follow-ups run after a completed conversation
 turn; this does not independently verify completion of the underlying coding task.
+
+## Attachments, rendering, history and usage checkpoint
+
+U1 adds explicit bounded `@file` snapshots, ignored/private-path-aware completion,
+quoted path handling, redacted previews and read-policy checks. Attachments do not
+grant edit permission; the edit tool must still read and version-check its source.
+U2 styles Markdown without changing its copyable source, hides terminal controls
+and streams incomplete lines immediately. U3 browses durable tool groups and pages
+archived results without replay or fresh workspace reads. See
+[FILE_ATTACHMENTS.md](FILE_ATTACHMENTS.md), [TERMINAL_MARKDOWN.md](TERMINAL_MARKDOWN.md)
+and [TOOL_HISTORY.md](TOOL_HISTORY.md).
+
+CI found two busy-to-idle handoff races: slash commands could be rejected by the
+busy reader, and a late follow-up could remain queued after the last queue check.
+Commands now transfer to the main input loop; the follow-up check runs after the
+reader joins. Deterministic PTY tests exercise both boundaries. Streaming also
+holds only possible known-secret prefixes, avoiding an unrelated short answer
+being hidden until the provider finishes.
+
+M5 adds `/usage`: actual reported counts, per-field coverage and explicit unknown
+values. Cache and reasoning counts are subsets, not extra totals. Returned usage
+persists even when cost settlement fails; unresolved charges remain blocking.
+Session loading/saving validates detailed counters. See [USAGE.md](USAGE.md).
+
+The hosted checkpoint [46089278184](https://github.com/ramshetty01/Codine-Harness/actions/runs/46089278184)
+passed all supported-platform and Docker jobs. Subsequent accounting, redaction
+and changeset changes receive their own integration checks. A wheel rebuilt at
+`6cf7e9d` passed installed startup/resource/session/restart checks and 12/12 offline
+exercises with networking blocked. No inference calls were made; the existing
+OpenRouter ledger remains unchanged.
+
+The `6cf7e9d` integration passed **477 tests with Docker enabled and zero skips**.
+Hosted run [46089628960](https://github.com/ramshetty01/Codine-Harness/actions/runs/46089628960)
+also passed all nine jobs. U1/U2/U3/M5 acceptance is verified at this checkpoint.
+
+R4/S4 add related-edit previews and approvals, per-turn net file checkpoints,
+`/changeset` review and `/rewind` recovery. Repeated edits and move chains retain
+original before-images; partial application is journaled. Review found a write
+race during ownership journaling; `02298cb` rechecks after journal persistence and
+preserves a conflicting external edit. This remains a non-atomic multi-file
+operation, not a transaction or a shell/Git rollback. See [CHANGESETS.md](CHANGESETS.md).
+The follow-up review has its own targeted tests and hosted validation.
