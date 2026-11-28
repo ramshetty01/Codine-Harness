@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 from .staging import _read_file
 
@@ -40,10 +41,26 @@ def _scopes(scopes):
     return sorted(result, key=lambda name: (len(Path(name).parts), name))
 
 
-def _read(root, relative):
+def _validate_user_guidance(metadata, kind):
+    """Check the opened object, not a path that could change before the read."""
+    uid = os.getuid()
+    if kind == 'file':
+        if metadata.st_uid != uid or metadata.st_mode & 0o022:
+            raise ValueError('User instructions must be user-owned and not group/other writable.')
+    else:
+        # System-owned sticky temporary ancestors are safe traversal boundaries;
+        # the final containing directory must still be private to its owner.
+        sticky_ancestor = (kind == 'directory' and metadata.st_uid == 0 and
+                           metadata.st_mode & stat.S_ISVTX)
+        if metadata.st_uid not in (0, uid) or (metadata.st_mode & 0o022 and not sticky_ancestor):
+            raise ValueError('User instruction directories must not be writable by other users.')
+
+
+def _read(root, relative, *, user_guidance=False):
     descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        return _read_file(descriptor, Path(relative).parts, LIMIT)
+        return _read_file(descriptor, Path(relative).parts, LIMIT,
+                          validate=_validate_user_guidance if user_guidance else None)
     finally:
         os.close(descriptor)
 
@@ -68,7 +85,7 @@ def documents(project, authorize=None, scopes=(), *, user_path=None):
     if global_path.is_symlink(): raise ValueError('User instructions cannot be a symbolic link.')
     if global_path.exists():
         if not global_path.is_absolute(): raise ValueError('User instruction path must be absolute.')
-        append(_read(global_path.anchor, Path(*global_path.parts[1:])),
+        append(_read(global_path.anchor, Path(*global_path.parts[1:]), user_guidance=True),
                str(global_path), 'user_global', 'all user tasks')
     for directory in selected:
         directory_total = 0

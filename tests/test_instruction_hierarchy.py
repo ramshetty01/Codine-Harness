@@ -38,6 +38,39 @@ class InstructionHierarchyTests(unittest.TestCase):
     def calls(self,*names):
         return ({'role':'assistant','content':None,'tool_calls':[{'id':str(i),'type':'function','function':{'name':name,'arguments':json.dumps(args)}} for i,(name,args) in enumerate(names)]},'tool_calls',None)
 
+    def test_global_guidance_requires_owned_unshared_descriptor(self):
+        self.global_file('USER GUIDANCE')
+        self.global_path.chmod(0o644)
+        self.assertIn('USER GUIDANCE', self.manager.context()[0])
+        for mode in (0o666, 0o664, 0o646):
+            self.global_path.chmod(mode)
+            with self.assertRaisesRegex(ValueError, 'user-owned'):
+                self.manager.context()
+        self.global_path.chmod(0o644)
+        from codine.instructions import _validate_user_guidance
+        from types import SimpleNamespace
+        metadata = SimpleNamespace(st_uid=os.getuid()+1, st_mode=0o100644)
+        with self.assertRaisesRegex(ValueError, 'user-owned'):
+            _validate_user_guidance(metadata, 'file')
+        self.global_path.parent.chmod(0o777)
+        try:
+            with self.assertRaisesRegex(ValueError, 'directories'):
+                self.manager.context()
+        finally:
+            self.global_path.parent.chmod(0o755)
+
+    def test_global_permissions_checked_after_descriptor_open(self):
+        self.global_file('MUST NOT LOAD')
+        original = os.open
+        def open_then_share(path, *args, **kwargs):
+            descriptor = original(path, *args, **kwargs)
+            if path == 'AGENTS.md':
+                os.fchmod(descriptor, 0o666)
+            return descriptor
+        with patch('codine.staging.os.open', side_effect=open_then_share):
+            with self.assertRaisesRegex(ValueError, 'user-owned'):
+                self.manager.context()
+
     def test_provenance_precedence_and_only_selected_ancestors(self):
         self.global_file('USER GLOBAL: prefer concise English.')
         self.file('AGENTS.md','ROOT AGENTS: use pytest.')

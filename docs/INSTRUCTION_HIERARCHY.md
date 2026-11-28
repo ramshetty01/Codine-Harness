@@ -99,3 +99,12 @@ notebook and move endpoints, declared cwd versus argv, global-file alias protect
 nested core approvals, policy ASK/DENY, bounds, symlinked user configuration,
 context inspection and summary-data projection. Providers are controlled fakes;
 these checks do not spend inference credits.
+
+User-global guidance is accepted only when the opened file belongs to the invoking
+user and is not group/other writable (`0644` is allowed). Its descriptor-walked
+ancestor directories must belong to that user or root and reject shared writes;
+root-owned sticky temporary ancestors are allowed, but the final containing
+directory must not be shared-writable. These checks run on opened descriptors,
+including a second file check after reading, so a path-only permission precheck
+cannot grant trusted provenance to a swapped file. Project documents remain
+lower-priority conventions and do not gain user-global provenance.

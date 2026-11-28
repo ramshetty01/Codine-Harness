@@ -83,17 +83,21 @@ def _validate_path(name, limits):
     return path.parts
 
 
-def _read_file(root_fd, parts, limit):
+def _read_file(root_fd, parts, limit, *, validate=None):
     """Walk beneath an already opened root; never follow symlinks at any component."""
     directory = os.dup(root_fd)
     descriptor = None
     try:
+        if validate is not None: validate(os.fstat(directory), 'directory')
         for component in parts[:-1]:
             child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
             os.close(directory)
             directory = child
+            if validate is not None: validate(os.fstat(directory), 'directory')
+        if validate is not None: validate(os.fstat(directory), 'parent')
         descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         before = os.fstat(descriptor)
+        if validate is not None: validate(before, 'file')
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
             raise StagingError('Only regular files with one hard link may be staged.')
         if before.st_size > limit:
@@ -105,6 +109,7 @@ def _read_file(root_fd, parts, limit):
                 break
             data.extend(chunk)
         after = os.fstat(descriptor)
+        if validate is not None: validate(after, 'file')
         identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
                                   value.st_ctime_ns, value.st_nlink)
         if len(data) > limit or identity(before) != identity(after):
