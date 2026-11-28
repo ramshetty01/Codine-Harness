@@ -35,7 +35,8 @@ class CatalogTests(unittest.TestCase):
         ui=SimpleNamespace(interactive=True,write=Mock())
         row={'id':'free/model','pricing':{'prompt':'0','completion':'0'},
              'architecture':{'input_modalities':['text'],'output_modalities':['text']},'supported_parameters':['tools']}
-        with patch('codine.router_catalog.metadata',return_value=[row]), patch('model_picker.select_model',return_value='free/model'):
+        from codine.catalog_cache import CatalogSnapshot
+        with patch('codine.router_catalog.picker_catalog',return_value=(CatalogSnapshot([row], 0, False, 'live'), '')), patch('model_picker.select_model',return_value='free/model'):
             command('/model free',agent,None,ui)
         self.assertEqual(agent.session.model,'free/model')
         self.assertIs(agent.session.billing,billing)

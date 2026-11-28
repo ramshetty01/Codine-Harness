@@ -45,7 +45,8 @@ HELP = '''Commands
   /context              Inspect active context and estimated remaining space
   /compact              Keep the latest 3 whole turns in active context
   /restart              Save, check, restart, and resume with updated code
-  /model [ID|free]       Pick an OpenRouter model, or set a model ID
+  /model [ID|free]       Pick a model or explicitly set an ID without metadata
+  /model cached|refresh [free]  Explicit cached selection or live catalog refresh
   /details              Full output of the last tool
   /changes              List recent file-tool checkpoints
   /diff [ID]            Compare checkpoint with the current file
@@ -268,13 +269,18 @@ def command(text, agent, workspace, ui):
         agent.save()
         ui.write('Active context keeps the latest 3 complete turns; archive retained.' if changed else 'Already at 3 turns or fewer.')
     elif name == '/model':
-        if agent.config.provider == 'openrouter' and ui.interactive and argument in ('', 'free'):
-            from .router_catalog import metadata
+        if agent.config.provider == 'openrouter' and ui.interactive and argument in ('', 'free', 'cached', 'cached free', 'refresh', 'refresh free'):
+            from .router_catalog import picker_catalog
             from model_picker import free_tool_models, select_model
             from .router_catalog import tool_models
-            ui.write('Loading current OpenRouter catalog (no inference charge)…')
-            records = metadata('models')
-            if argument == 'free':
+            mode = 'cached' if argument.startswith('cached') else 'refresh' if argument.startswith('refresh') else 'default'
+            ui.write('Loading OpenRouter catalog (no inference request)…')
+            snapshot, warning = picker_catalog(mode)
+            ui.write(snapshot.describe())
+            if warning:
+                ui.write(warning)
+            records = snapshot.records
+            if argument in ('free', 'cached free', 'refresh free'):
                 choices = free_tool_models(records)
             else:
                 available = {row['id'] for row in tool_models(records)}
@@ -282,19 +288,19 @@ def command(text, agent, workspace, ui):
                 choices.sort(key=lambda row: row['id'])
             if not choices:
                 raise ValueError('No matching tool-capable models are available.')
-            chosen = select_model(choices, session.model)
+            chosen = select_model(choices, session.model, snapshot.describe())
             if chosen is None:
                 ui.write('Model unchanged.')
                 return
             argument = chosen
-        if argument == 'free':
-            raise ValueError('/model free requires interactive OpenRouter mode.')
+        if argument in ('free', 'cached', 'cached free', 'refresh', 'refresh free'):
+            raise ValueError('Catalog selection requires interactive OpenRouter mode.')
         if argument:
-            if any(char.isspace() for char in argument) or len(argument) > 200:
+            if any(char.isspace() or not char.isprintable() for char in argument) or len(argument) > 200:
                 raise ValueError('Provide one model ID.')
             session.model = argument
             agent.save()
-        ui.write(f'{agent.config.provider.upper()}: {session.model}\nModel must support the selected provider and tools; there is no automatic fallback.')
+        ui.write(f'{agent.config.provider.upper()}: {session.model}\nManual IDs are not validated by catalog availability. Model must support the selected provider and tools; unknown pricing is not free. There is no automatic provider/model fallback.')
     elif name == '/thinking':
         agent.config.show_reasoning = not agent.config.show_reasoning
         ui.write('Reasoning display: ' + ('on' if agent.config.show_reasoning else 'off'))

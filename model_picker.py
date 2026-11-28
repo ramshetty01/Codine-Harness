@@ -53,11 +53,12 @@ def model_label(model):
     return ''.join(char if char.isprintable() else ' ' for char in label)
 
 
-def build_model_dialog(models, current_model):
+def build_model_dialog(models, current_model, catalog_notice=''):
     ids = {model["id"] for model in models}
     dialog = radiolist_dialog(
         title="Codine /model",
         text=(
+            catalog_notice + ("\n" if catalog_notice else "") +
             "Tool-capable models. Check displayed prices; provider quotas apply.\n"
             "Up/Down: move  Space: select  Tab: buttons  Enter: confirm\n"
             "Esc: cancel. Selection applies to this session only."
@@ -85,10 +86,12 @@ def build_model_dialog(models, current_model):
     return dialog
 
 
-def select_model(models, current_model):
+def select_model(models, current_model, catalog_notice=''):
     if sys.stdin.isatty() and sys.stdout.isatty():
-        return build_model_dialog(models, current_model).run()
+        return build_model_dialog(models, current_model, catalog_notice).run()
 
+    if catalog_notice:
+        print(catalog_notice)
     # Numbered selection also works in simple IDE consoles and piped input.
     for number, model in enumerate(models, 1):
         marker = " [current]" if model["id"] == current_model else ""
