@@ -81,14 +81,22 @@ class CatalogCacheTests(unittest.TestCase):
 
     def test_cli_manual_selection_without_network_keeps_provider_budget(self):
         from codine.cli import command
-        billing = {'spent': '1.00', 'pending': '.25'}
-        agent = SimpleNamespace(config=SimpleNamespace(provider='openrouter'), session=SimpleNamespace(model='old', billing=billing), save=Mock())
+        from codine.sessions import Session
+        from codine.budget import BudgetError
+        session=Session.create(self.root,'old','system',provider='openrouter')
+        billing=session.billing
+        agent=SimpleNamespace(config=SimpleNamespace(provider='openrouter'),session=session,
+                              shared_budget_path=self.root/'unused-ledger.json',save=Mock())
         ui = SimpleNamespace(interactive=True, write=Mock())
         with patch('codine.router_catalog.metadata', side_effect=AssertionError('No network')):
             command('/model explicit/model', agent, None, ui)
-        self.assertEqual(agent.session.model, 'explicit/model')
+            self.assertEqual(agent.session.model, 'explicit/model')
+            billing['pending']='.25'
+            with self.assertRaises(BudgetError):command('/model another/model',agent,None,ui)
+        self.assertEqual(agent.session.model,'explicit/model')
         self.assertEqual(agent.config.provider, 'openrouter')
         self.assertIs(agent.session.billing, billing)
+        self.assertEqual(billing['pending'],'.25')
 
     def test_cli_failure_does_not_change_model_or_save(self):
         from codine.cli import command

@@ -29,9 +29,15 @@ class CatalogTests(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import Mock
         from codine.cli import command
-        billing={'spent':'.01'}
+        import tempfile
+        from pathlib import Path
+        from codine.sessions import Session
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        root=Path(temporary.name).resolve()
+        session=Session.create(root,'old','system',provider='openrouter')
+        billing=session.billing
         agent=SimpleNamespace(config=SimpleNamespace(provider='openrouter'),
-                              session=SimpleNamespace(model='old',billing=billing),save=Mock())
+                              session=session,shared_budget_path=root/'unused-ledger.json',save=Mock())
         ui=SimpleNamespace(interactive=True,write=Mock())
         row={'id':'free/model','pricing':{'prompt':'0','completion':'0'},
              'architecture':{'input_modalities':['text'],'output_modalities':['text']},'supported_parameters':['tools']}

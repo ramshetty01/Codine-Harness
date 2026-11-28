@@ -163,7 +163,7 @@ class FoundationsTests(unittest.TestCase):
             reply,_,_=provider.complete([{'role':'user','content':'hello'}],[], 'explicit-model',lambda *args:None)
             request=client.return_value.chat.completions.create.call_args.kwargs
             self.assertEqual(client.call_args.kwargs['base_url'],'https://openrouter.ai/api/v1')
-            self.assertEqual(request['extra_body'],{'provider':{'require_parameters':True}})
+            self.assertEqual(request['extra_body'],{'provider':{'require_parameters':True,'allow_fallbacks':False}})
             self.assertTrue(request['stream'])
             self.assertEqual(reply['reasoning_details'][0]['data'],'opaque')
             provider.close()
