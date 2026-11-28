@@ -82,7 +82,7 @@ class ArtifactStore:
                     pass
         return ident
 
-    def read(self, artifact_id, offset=0, max_chars=6000):
+    def read(self, artifact_id, offset=0, max_chars=6000, *, redactor=None):
         if not isinstance(artifact_id, str) or not re.fullmatch(r'[0-9a-f]{64}', artifact_id):
             raise ValueError('Invalid artifact ID.')
         if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1 <= max_chars <= 6000:
@@ -96,6 +96,8 @@ class ArtifactStore:
                 not isinstance(record['tool'], str) or not isinstance(record['content'], str)):
             raise ValueError('Malformed artifact snapshot.')
         content = record['content']
+        if redactor is not None:
+            content = redactor.text(content)
         if not isinstance(content, str) or offset > len(content):
             raise ValueError('Invalid artifact content or offset.')
         source_changed = None

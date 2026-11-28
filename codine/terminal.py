@@ -34,7 +34,7 @@ COMMANDS = {
     '/save': 'Save your session', '/clear': 'Clear active context; keep archive',
     '/compact': 'Summarize older context while retaining the archive',
     '/restart': 'Check code, restart, and resume', '/model': 'Show or change model',
-    '/thinking': 'Show or hide reasoning', '/details': 'Full output of the last tool',
+    '/thinking': 'Show or hide reasoning', '/details': 'Page a recorded tool result', '/tools': 'Browse and expand tool groups',
     '/permissions': 'Choose ask or auto-edit', '/quit': 'Save and exit',
 }
 TOOL_LABELS = {
@@ -331,7 +331,7 @@ class Terminal:
         for line in lines[:limit]:
             self.line('    ' + clip(line, self.width - 4), 'muted')
         if len(lines) > limit or any(get_cwidth(line) > self.width - 4 for line in lines[:limit]):
-            self.line('    … /details for full output', 'muted')
+            self.line('    … /details to page output · /tools for earlier groups', 'muted')
 
     def _markdown_fragments(self, fragments):
         print_formatted_text(FormattedText([(f'class:{tone}', value) for tone, value in fragments]),

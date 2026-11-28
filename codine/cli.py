@@ -54,7 +54,8 @@ HELP = '''Commands
   /restart              Save, check, restart, and resume with updated code
   /model [ID|free]       Pick a model or explicitly set an ID without metadata
   /model cached|refresh [free]  Explicit cached selection or live catalog refresh
-  /details              Full output of the last tool
+  /tools [PAGE]         Browse tool groups; expand/collapse GROUP
+  /details [GROUP.N]    Page a recorded tool result; next/prev or OFFSET
   /changes              List recent file-tool checkpoints
   /diff [ID]            Compare checkpoint with the current file
   /undo [ID]            Preview and restore one file-tool change
@@ -174,8 +175,12 @@ def command(text, agent, workspace, ui):
             ui.write('Undone ' + result['path'])
         else:
             ui.write(result.get('message', result['status'].capitalize()))
+    elif name == '/tools':
+        from .historyview import list_command
+        list_command(argument, agent, ui)
     elif name == '/details':
-        ui.details()
+        from .historyview import details_command
+        details_command(argument, agent, ui)
     elif name == '/session':
         ui.write(f'Session: {session.title or session.id}\nID: {session.id}\nProject: {session.project}\nModel: {session.model}\nMessages: {len(session.messages)} | active boundary: {session.context_start}\nFile: {agent.store.path(session.id)}')
     elif name == '/rename':
