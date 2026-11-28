@@ -105,3 +105,19 @@ References:
 - [OpenRouter parameter-aware provider routing](https://github.com/OpenRouterTeam/docs/blob/main/guides/routing/provider-selection.mdx)
 - [Catalog cache behavior](MODEL_CATALOG.md)
 - [Streaming and reasoning preservation](OPENROUTER_STREAMING.md)
+
+Each provider request is now prepared once before local/shared budget reservation.
+The prepared object contains immutable serialized messages and adapted options,
+bound to a fingerprint of the exact model, messages and tool schemas. Binding a
+different request fails before accounting. Dispatch uses that snapshot and does
+not re-read capability files or cache metadata after marking a shared request
+sent. A declaration change takes effect on the next request. Prepared requests
+are local to one `Agent.complete` call, including summarization; failed budget
+checks do not leave a provider-wide plan for later reuse. Direct provider calls
+still prepare and validate their own request.
+
+Unreadable or unsafe cache files, like expired or corrupt metadata, are treated
+as unknown capability evidence. They do not override explicit trusted user
+declarations. Unknown OpenRouter support retains required-parameter routing;
+unknown NVIDIA tool support remains blocked. This does not downgrade the
+independent live financial checks or clear uncertain charges.

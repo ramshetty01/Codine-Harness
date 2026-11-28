@@ -163,21 +163,30 @@ class Agent:
                 inbox.check_cancel()
             target_emit(kind, data)
         self._phase = 'preflight'
-        preflight = getattr(self.provider, 'preflight', None)
-        if callable(preflight):
-            plan = preflight(messages, schemas, self.session.model)
-            if isinstance(getattr(plan, 'note', None), str):
-                self.emit('status', plan.note)
+        prepare = (getattr(self.provider, 'prepare_completion', None)
+                   if callable(getattr(type(self.provider), 'prepare_completion', None)) else None)
+        if callable(prepare):
+            prepared = prepare(messages, schemas, self.session.model)
+            completion = prepared.bind(messages, schemas, self.session.model)
+            if isinstance(getattr(prepared, 'note', None), str):
+                self.emit('status', prepared.note)
+        else:
+            preflight = getattr(self.provider, 'preflight', None)
+            if callable(preflight):
+                plan = preflight(messages, schemas, self.session.model)
+                if isinstance(getattr(plan, 'note', None), str):
+                    self.emit('status', plan.note)
+            completion = lambda callback: self.provider.complete(messages, schemas, self.session.model, callback)
         self._phase = 'accounting'
         if ledger and getattr(self, 'shared_budget_path', None) is not None:
             from .interactive_budget import complete_shared
-            reply, finish, usage = complete_shared(self, messages, schemas, ledger, checked_emit)
+            reply, finish, usage = complete_shared(self, messages, schemas, ledger, checked_emit, completion=completion)
         else:
             if ledger:
                 ledger.reserve()
                 self.save()
             self._phase = 'provider'
-            reply, finish, usage = self.provider.complete(messages, schemas, self.session.model, checked_emit)
+            reply, finish, usage = completion(checked_emit)
             self._phase = 'processing'
             if ledger:
                 cost = getattr(usage, 'cost', None) if usage else None

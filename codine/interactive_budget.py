@@ -40,7 +40,7 @@ def synchronize(agent, local, shared):
                 raise BudgetError(blocked)
 
 
-def complete_shared(agent, messages, schemas, local, emit):
+def complete_shared(agent, messages, schemas, local, emit, *, completion=None):
     with open_shared(agent) as shared:
         synchronize(agent, local, shared)
         local.reserve()
@@ -70,7 +70,8 @@ def complete_shared(agent, messages, schemas, local, emit):
             agent.save()
             raise
         agent._phase = 'provider'
-        reply, finish, usage = agent.provider.complete(messages, schemas, agent.session.model, emit)
+        reply, finish, usage = (completion(emit) if completion is not None else
+                                agent.provider.complete(messages, schemas, agent.session.model, emit))
         agent._phase = 'processing'
         cost = getattr(usage, 'cost', None) if usage else None
         if cost is None:

@@ -101,7 +101,7 @@ def cached_record(model):
     from .catalog_cache import CatalogCache
     try:
         return CatalogCache().model_record(model, allow_stale=False)
-    except ValueError:
+    except (OSError, ValueError):
         return None  # stale/corrupt metadata is not evidence of model support
 
 

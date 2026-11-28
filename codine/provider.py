@@ -2,6 +2,8 @@
 import json
 import copy
 import re
+import hashlib
+from dataclasses import dataclass, field
 from openai import OpenAI
 from .config import BASE_URL
 
@@ -229,6 +231,45 @@ def collect_openrouter_stream(stream, emit=None, show_reasoning=False):
     return reply, finish, usage
 
 
+
+def _request_identity(messages, schemas, model):
+    encoded = json.dumps({'messages': messages, 'schemas': schemas, 'model': model},
+                         sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class PreparedCompletion:
+    """One immutable request snapshot; no sticky plan shared between calls."""
+    identity: str
+    request_json: str = field(repr=False)
+    note: str
+    send: object = field(repr=False, compare=False)
+
+    def bind(self, messages, schemas, model):
+        if _request_identity(messages, schemas, model) != self.identity:
+            raise ValueError('Prepared request does not match its model, messages and tool schemas.')
+        # Only serialized immutable content is captured. Later caller mutations
+        # cannot replace the request after it has crossed the accounting boundary.
+        request_json, send = self.request_json, self.send
+        def invoke(emit):
+            request = json.loads(request_json)
+            return send(request['model'], request['messages'], request['kwargs'], emit)
+        return invoke
+
+
+def _prepare_completion(provider, messages, schemas, model):
+    if not provider.config.api_key:
+        raise ValueError('Configure the selected provider API key before a live request.')
+    identity = _request_identity(messages, schemas, model)
+    plan = provider.preflight(messages, schemas, model)
+    # Defensive check: custom preflight adapters must not change request inputs.
+    if _request_identity(messages, schemas, model) != identity:
+        raise ValueError('Preflight changed request inputs; no request sent.')
+    request_json = json.dumps({'model': model, 'messages': messages, 'kwargs': plan.kwargs},
+                              allow_nan=False)
+    return PreparedCompletion(identity, request_json, plan.note, provider._send_prepared)
+
 class NvidiaProvider:
     def __init__(self, config, capability_declarations=None):
         self.capability_declarations = capability_declarations
@@ -246,14 +287,18 @@ class NvidiaProvider:
         self.last_capabilities = plan
         return plan
 
+    def prepare_completion(self, messages, schemas, model):
+        return _prepare_completion(self, messages, schemas, model)
+
     def complete(self, messages, schemas, model, emit):
-        if not self.config.api_key:
-            raise ValueError('Set NVIDIA_API_KEY in .env. Offline commands work without a key.')
-        plan = self.preflight(messages, schemas, model)
+        prepared = self.prepare_completion(messages, schemas, model)
+        return prepared.bind(messages, schemas, model)(emit)
+
+    def _send_prepared(self, model, messages, kwargs, emit):
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url=BASE_URL, timeout=120.0, max_retries=0)
         with self.client.chat.completions.create(
-            model=model, messages=messages, **plan.kwargs,
+            model=model, messages=messages, **kwargs,
         ) as stream:
             return collect_stream(stream, emit, self.config.show_reasoning)
 
@@ -279,13 +324,17 @@ class OpenRouterProvider:
         self.last_capabilities = plan
         return plan
 
+    def prepare_completion(self, messages, schemas, model):
+        return _prepare_completion(self, messages, schemas, model)
+
     def complete(self, messages, schemas, model, emit):
-        if not self.config.api_key:
-            raise ValueError('Set OPENROUTER_API_KEY in .env before a live request.')
-        plan = self.preflight(messages, schemas, model)
+        prepared = self.prepare_completion(messages, schemas, model)
+        return prepared.bind(messages, schemas, model)(emit)
+
+    def _send_prepared(self, model, messages, kwargs, emit):
         if self.client is None:
             self.client = OpenAI(api_key=self.config.api_key, base_url='https://openrouter.ai/api/v1', timeout=120.0, max_retries=0)
         with self.client.chat.completions.create(
-            model=model, messages=messages, **plan.kwargs,
+            model=model, messages=messages, **kwargs,
         ) as stream:
             return collect_openrouter_stream(stream, emit, self.config.show_reasoning)
