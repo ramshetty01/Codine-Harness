@@ -200,10 +200,13 @@ class Agent:
                 self.emit('status', ledger.summary())
                 if blocked:
                     raise BudgetError(blocked)
-        if usage:
-            for key, attr in (('input', 'prompt_tokens'), ('output', 'completion_tokens'), ('total', 'total_tokens')):
-                self.session.usage[key] += getattr(usage, attr, 0) or 0
-            self.save()
+        from .usage import record as record_usage
+        record_usage(self.session.usage_details, usage)
+        for key in ('input', 'output', 'total'):
+            value = self.session.usage_details['last'][key]
+            if value is not None:
+                self.session.usage[key] += value
+        self.save()
         return self.redactor.data(reply), finish, usage
 
     def compact_context(self, ledger, window, output, guidance, schemas):

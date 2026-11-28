@@ -35,6 +35,7 @@ HELP = '''Commands
   /sandbox              Inspect effective command isolation and image
   /policy               Show user command rules and last explained decision
   /instructions         Show loaded root project guidance
+  /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /paste                Read multiple lines until /end (fallback for paste)
   /session              Current session details
@@ -137,6 +138,9 @@ def command(text, agent, workspace, ui):
         guidance, paths = load_instructions(workspace.root, authorize=lambda path:
             workspace._authorize_read(workspace.resolve(path.relative_to(workspace.root).as_posix())))
         ui.write(guidance or 'No permitted root AGENTS.md or CODINE.md loaded. Nested instructions are not auto-loaded.')
+    elif name == '/usage':
+        from .usage import describe
+        ui.write(describe(session.usage_details))
     elif name == '/budget':
         if getattr(agent, 'shared_budget_path', None) is not None:
             from .interactive_budget import budget_status, reconcile_shared

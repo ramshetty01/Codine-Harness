@@ -20,6 +20,7 @@ COMMANDS = {
     '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
     '/export': 'Review and export a redacted transcript', '/import': 'Review and import historical conversation',
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
+    '/usage': 'Reported input/output/cache/reasoning usage',
     '/budget': 'View or reconcile request costs',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
     '/artifact': 'Read saved tool output', '/rename': 'Rename a session',

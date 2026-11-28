@@ -86,6 +86,7 @@ class Session:
     context_summary: dict = field(default_factory=dict)
     summary_end: int = 1
     summary_user: int | None = None
+    usage_details: dict = field(default_factory=dict)
     usage: dict = field(default_factory=lambda: {"input": 0, "output": 0, "total": 0})
 
     @classmethod
@@ -272,6 +273,8 @@ class SessionStore:
                 raise ValueError("Invalid saved model.")
             if not isinstance(session.usage, dict) or any(type(session.usage.get(key)) is not int or session.usage[key] < 0 for key in ('input', 'output', 'total')):
                 raise ValueError("Invalid usage counters.")
+            from .usage import validate as validate_usage
+            validate_usage(session.usage_details)
             if repair_pending:
                 session.repair_pending()
         except (TypeError, KeyError, AttributeError, json.JSONDecodeError) as error:
