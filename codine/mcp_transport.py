@@ -1,4 +1,4 @@
-"""Bounded, non-retrying MCP 2025-11-25 stdio JSON-RPC transport."""
+"""Bounded dual-era MCP stdio; only the initial discovery probe may fall back."""
 import json
 import os
 import selectors
@@ -13,7 +13,9 @@ from .mcp_settings import fingerprint
 from .terminal import safe_text
 from .transcripts import scrub
 
-VERSION='2025-11-25'
+VERSION='2026-07-28'
+LEGACY_VERSION='2025-11-25'
+MODERN_ERRORS={-32020,-32021,-32022}
 TIMEOUT=10.0
 LIMIT=65536
 STAGE_LIMIT=64*1024*1024
@@ -22,11 +24,18 @@ STAGE_LIMIT=64*1024*1024
 class MCPError(ValueError): pass
 
 
+class MCPRemoteError(MCPError):
+    def __init__(self, code, message):
+        self.code=code
+        super().__init__('MCP server rejected request: '+message[:2000])
+
+
 class MCPConnection:
     def __init__(self,snapshot,credentials,redactor,cancel_event=None):
         self.process=None; self.closed=False; self.sequence=0; self.staged=None
         self.redactor=redactor; self.cancel_event=cancel_event
         self.tools_changed=False; self.stderr=''; self.buffer=bytearray()
+        self.protocol=VERSION
         self._cancel()
         config=snapshot['config']
         try:
@@ -34,11 +43,28 @@ class MCPConnection:
             self.process=subprocess.Popen(argv,cwd=snapshot['cwd'],env={'PATH':os.defpath,'LANG':'C.UTF-8',**credentials},
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,bufsize=0)
             for stream in (self.process.stdin,self.process.stdout,self.process.stderr): os.set_blocking(stream.fileno(),False)
-            result=self.request('initialize',{'protocolVersion':VERSION,'capabilities':{},'clientInfo':{'name':'codine','version':'0.2.0'}})
-            if (not isinstance(result,dict) or result.get('protocolVersion')!=VERSION or
-                    not isinstance(result.get('capabilities'),dict) or not isinstance(result['capabilities'].get('tools'),dict)):
-                raise MCPError('Server does not support pinned MCP 2025-11-25 tools.')
-            self.notify('notifications/initialized')
+            preference=config.get('protocol','auto')
+            if preference!=LEGACY_VERSION:
+                try:
+                    result=self.request('server/discover',{},probe=True)
+                except MCPRemoteError as error:
+                    if preference!='auto' or error.code in MODERN_ERRORS:
+                        raise
+                    self.protocol=LEGACY_VERSION
+                else:
+                    versions=result.get('supportedVersions') if isinstance(result,dict) else None
+                    if (not isinstance(versions,list) or not 1<=len(versions)<=16 or
+                            any(not isinstance(version,str) or len(version)>32 for version in versions) or VERSION not in versions or
+                            not isinstance(result.get('capabilities'),dict) or not isinstance(result['capabilities'].get('tools'),dict)):
+                        raise MCPError('MCP discovery did not advertise supported 2026-07-28 tools; no downgrade or retry.')
+            else:
+                self.protocol=LEGACY_VERSION
+            if self.protocol==LEGACY_VERSION:
+                result=self.request('initialize',{'protocolVersion':LEGACY_VERSION,'capabilities':{},'clientInfo':{'name':'codine','version':'0.2.0'}})
+                if (not isinstance(result,dict) or result.get('protocolVersion')!=LEGACY_VERSION or
+                        not isinstance(result.get('capabilities'),dict) or not isinstance(result['capabilities'].get('tools'),dict)):
+                    raise MCPError('Server does not support pinned MCP 2025-11-25 tools.')
+                self.notify('notifications/initialized')
         except BaseException:
             self.close(); raise
 
@@ -77,9 +103,27 @@ class MCPConnection:
             raise MCPError('MCP executable changed during staging.')
         return argv
 
-    def _cancel(self):
+    def _cancel(self, request_id=None):
         if self.cancel_event is not None and self.cancel_event.is_set():
+            self._cancel_request(request_id)
             self.close(); raise KeyboardInterrupt('MCP operation cancelled; not replayed.')
+
+    def _cancel_request(self, request_id):
+        if request_id is None or self.protocol!=VERSION or self.process is None or self.closed:return
+        raw=self.encode({'jsonrpc':'2.0','method':'notifications/cancelled',
+                         'params':{'requestId':request_id,'reason':'Client stopped waiting; no automatic retry'}})
+        # Best effort, strictly bounded. Process-tree shutdown remains the final
+        # cleanup boundary when a server ignores cancellation or stops reading.
+        deadline=time.monotonic()+.1
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(self.process.stdin,selectors.EVENT_WRITE)
+                while raw and time.monotonic()<deadline:
+                    if selector.select(.01):
+                        try:count=os.write(self.process.stdin.fileno(),raw)
+                        except BlockingIOError:continue
+                        raw=raw[count:]
+        except (OSError,ValueError):pass
 
     def clean(self,value):
         if isinstance(value,str): return safe_text(scrub(value,self.redactor))
@@ -96,14 +140,19 @@ class MCPConnection:
     def notify(self,method):
         self._exchange(self.encode({'jsonrpc':'2.0','method':method}),None)
 
-    def request(self,method,params):
+    def request(self,method,params,*,probe=False):
         if self.closed: raise MCPError('MCP connection is closed; reconnect explicitly.')
         self.sequence+=1
-        return self._exchange(self.encode({'jsonrpc':'2.0','id':self.sequence,'method':method,'params':params}),self.sequence)
+        params=dict(params)
+        if self.protocol==VERSION:
+            params['_meta']={'io.modelcontextprotocol/protocolVersion':VERSION,
+                'io.modelcontextprotocol/clientCapabilities':{},
+                'io.modelcontextprotocol/clientInfo':{'name':'codine','version':'0.2.0'}}
+        return self._exchange(self.encode({'jsonrpc':'2.0','id':self.sequence,'method':method,'params':params}),self.sequence,probe=probe)
 
-    def _exchange(self,outgoing,expected):
+    def _exchange(self,outgoing,expected,*,probe=False):
         outgoing=bytearray(outgoing); errors=bytearray(); frames=0; received=0
-        completed=False; result_value=None
+        completed=False; result_value=None; sent=False
         deadline=time.monotonic()+TIMEOUT
         try:
             with selectors.DefaultSelector() as select:
@@ -111,8 +160,11 @@ class MCPConnection:
                 select.register(self.process.stdout,selectors.EVENT_READ,'out')
                 select.register(self.process.stderr,selectors.EVENT_READ,'err')
                 while True:
-                    self._cancel()
-                    if time.monotonic()>=deadline: raise MCPError('MCP timed out; server stopped, action not replayed.')
+                    self._cancel(expected if sent and not completed else None)
+                    if time.monotonic()>=deadline:
+                        self._cancel_request(expected if sent and not completed else None)
+                        suffix=' Select protocol=2025-11-25 explicitly for a silent legacy server and review trust again.' if probe else ''
+                        raise MCPError('MCP timed out; server stopped, action not replayed.'+suffix)
                     if expected is None and not outgoing: return None
                     if completed and not outgoing: return result_value
                     for key,_ in select.select(.05):
@@ -120,7 +172,8 @@ class MCPConnection:
                             try: count=os.write(key.fd,outgoing[:4096])
                             except BlockingIOError: continue
                             del outgoing[:count]
-                            if not outgoing: select.unregister(key.fileobj)
+                            if not outgoing:
+                                sent=True; select.unregister(key.fileobj)
                             continue
                         try: chunk=os.read(key.fd,4096)
                         except BlockingIOError: continue
@@ -144,6 +197,7 @@ class MCPConnection:
                         if 'method' in message:
                             if not isinstance(message['method'],str): raise MCPError('Invalid MCP method.')
                             if 'id' in message:
+                                if self.protocol==VERSION:raise MCPError('Modern MCP forbids server-to-client requests; no client actions executed.')
                                 if type(message['id']) not in (str,int): raise MCPError('Invalid MCP server request ID.')
                                 # No sampling, roots, credentials, elicitation or other
                                 # server-driven actions. Never dispatch to a provider.
@@ -157,11 +211,20 @@ class MCPConnection:
                         if completed or type(message.get('id')) is not int or message['id']!=expected or ('result' in message)==('error' in message):
                             raise MCPError('Unexpected MCP response ID or fields.')
                         self.stderr=self.clean(errors.decode(errors='replace'))
-                        if 'error' in message: raise MCPError('MCP server rejected request: '+self.clean(str(message['error']))[:2000])
+                        if 'error' in message:
+                            error=message['error']
+                            if not isinstance(error,dict) or type(error.get('code')) is not int or not isinstance(error.get('message'),str):
+                                raise MCPError('Invalid MCP error response.')
+                            raise MCPRemoteError(error['code'],self.clean(error['message']))
+                        if self.protocol==VERSION and (not isinstance(message['result'],dict) or message['result'].get('resultType','complete')!='complete'):
+                            raise MCPError('Unsupported MCP result type; no input, sampling, or automatic retry performed.')
                         # A server request may precede this result in the same
                         # read. Flush its unsupported-capability response before
                         # returning, rather than silently dropping that reply.
                         result_value=self.clean(message['result']); completed=True
+        except MCPRemoteError:
+            if not probe:self.close()
+            raise
         except BaseException:
             self.close(); raise
 

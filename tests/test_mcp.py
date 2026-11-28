@@ -28,6 +28,9 @@ for line in sys.stdin:
   assert msg['error']['code']==-32601
   continue
  method=msg['method']
+ if method=='server/discover':
+  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'error':{'code':-32601,'message':'Method not found'}}),flush=True)
+  continue
  if method=='initialize':
   assert msg['params']['capabilities']=={}
   result={'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'fixture','version':'1'}}

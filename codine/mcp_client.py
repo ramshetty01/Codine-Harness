@@ -18,7 +18,9 @@ def schema(value):
     value=copy.deepcopy(value)
     def normalize(node, depth=0):
         if depth>12 or not isinstance(node,dict): raise ValueError('Invalid MCP input schema.')
-        node.pop('$schema',None)
+        dialect=node.pop('$schema',None)
+        if dialect not in (None,'https://json-schema.org/draft/2020-12/schema','https://json-schema.org/draft/2020-12/schema#'):
+            raise ValueError('Unsupported MCP schema dialect; use the supported JSON Schema 2020-12 subset.')
         if node.get('type')=='object':
             node.setdefault('additionalProperties',False)
             if not isinstance(node.get('properties',{}),dict): raise ValueError('Invalid MCP schema properties.')
@@ -84,7 +86,7 @@ class MCPManager:
             connection.tools_changed=False
             self.registry.tools.update(specs)
             self.loaded[name]={'snapshot':snapshot,'connection':connection,'tools':list(specs)}
-            return {'name':name,'status':'connected','protocol':'2025-11-25','tools':list(specs)}
+            return {'name':name,'status':'connected','protocol':connection.protocol,'tools':list(specs)}
         except BaseException:
             connection.close(); raise
 
@@ -128,6 +130,7 @@ class MCPManager:
 
     def list(self):
         return [{'name':name,'status':('disabled' if self.loaded[name]['connection'].closed else 'connected') if name in self.loaded else 'disconnected',
+                 'protocol':self.loaded[name]['connection'].protocol if name in self.loaded else row.get('protocol','auto'),
                  'credential_env':row['credential_env']} for name,row in self.settings.definitions().items()]
 
 

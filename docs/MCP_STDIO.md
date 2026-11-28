@@ -1,18 +1,43 @@
 # Local MCP stdio tools
 
-Codine supports **MCP 2025-11-25 over local stdio**, explicitly selected through
-`initialize`, followed by `notifications/initialized`, paginated `tools/list` and
-approved `tools/call` requests. This is a useful scoped client, not universal MCP
-support. Current MCP 2026-07-28 uses different per-request metadata semantics;
-Codine does not implement that revision. An unsupported negotiated version fails
-closed. Streamable HTTP, legacy SSE, OAuth, resources, prompts, tasks, sampling,
-elicitation and server-driven client actions are not implemented.
+Codine supports **modern MCP 2026-07-28 and legacy MCP 2025-11-25 over local
+stdio**, with explicit trust, paginated tool discovery and approved tool calls.
+It is a bounded text-tool client, not universal MCP feature support. Streamable
+HTTP, legacy SSE, OAuth, resources, prompts, subscriptions, tasks, elicitation,
+sampling and automatic multi-round-trip continuations are not implemented.
+
+With the default `protocol: "auto"`, Codine first sends `server/discover` with
+modern per-request metadata. A valid result must advertise `2026-07-28` and a tools
+capability. Each later request includes the same protocol version, empty client
+capabilities and client identity in `params._meta`; there is no modern initialize
+handshake. Server-reported identity or instructions do not grant authority.
+
+Only a well-formed non-modern protocol error from that initial discovery probe
+permits a single legacy initialize handshake on the same process. Recognized
+modern errors (`-32020`, `-32021`, `-32022`) do not trigger a downgrade. A timeout,
+malformed result, unsupported version or dead process stops the connection.
+There is no automatic process restart or replay. For silent or fragile older
+servers, explicitly set `protocol: "2025-11-25"` and review the changed trust
+snapshot; that skips the modern probe. `protocol: "2026-07-28"` disables fallback.
+Omitting this optional field preserves old configuration files and defaults to
+auto detection. It is part of the reviewed launch definition.
+
+Later `tools/list` or `tools/call` errors never cause a version change or retry.
+Only complete results are accepted (an absent `resultType` is treated as complete
+for compatibility). `input_required`, unknown result types and modern
+server-to-client requests stop the connection without soliciting credentials,
+calling a model, executing a client action or repeating the original tool call.
+Modern requests advertise no optional client capabilities. Legacy sampling and
+other server requests receive `Method not found` with no provider bridge.
 
 Primary protocol references, checked November 28, 2026:
 
 - [2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
 - [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 - [tool discovery and invocation](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+- [2026-07-28 request metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic/index)
+- [Modern discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
+- [Modern stdio and cancellation](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio)
 - [2026-07-28 versioning and legacy compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
 
 ## Configure and review
@@ -28,6 +53,7 @@ Example (replace the paths with your own existing executable and server):
   "servers": {
     "local": {
       "transport": "stdio",
+      "protocol": "auto",
       "argv": ["/absolute/path/to/python", "-I", "-u", "/absolute/path/to/server.py"],
       "cwd": "/absolute/project",
       "files": ["/absolute/path/to/server.py"],
@@ -87,9 +113,10 @@ model-visible call requires explicit approval, even in automatic-edit mode;
 planning mode hides and blocks MCP tools and prevents starting a server. Existing
 Codine tools cannot be replaced by MCP names. Server output is untrusted data.
 
-Codine advertises no sampling capability and refuses server-to-client requests
-with `Method not found`; there is no path from MCP into the provider client or
-API budget. Codine's own model requests retain the existing budget accounting.
+Codine advertises no sampling capability. Legacy server-to-client requests receive
+`Method not found`; modern server-to-client requests are protocol violations and
+close the connection. There is no path from MCP into the provider client or API
+budget. Codine's own model requests retain the existing budget accounting.
 A host-privileged MCP server may independently call paid services or read host
 secrets. Those services are not covered by Codine's model budget, and this client
 cannot enforce a financial limit on arbitrary server code.
@@ -115,3 +142,26 @@ termination and kills the owned process group, reaps the direct child and closes
 pipes. Servers that deliberately detach processes are not sandboxed by this
 mechanism. Lifecycle tests use real local fixture processes and fake credentials;
 no model inference or live service credentials are required.
+
+## Modern stdio verification and limits
+
+Cancellation and timeout send a best-effort `notifications/cancelled` with the
+exact outstanding request ID, bounded to 100 ms, before process-tree cleanup.
+No cancellation is sent for an unsent or already completed request. Closing stdin
+and bounded termination still handle servers that ignore cancellation or stop
+reading. There is no automatic retry of a tool whose outcome may be unknown.
+
+Tool schemas support a restricted object/array/scalar subset of JSON Schema
+2020-12, not every valid schema in that dialect. Unsupported dialects, composition
+keywords and references fail closed; no external `$ref` is fetched. Only text
+content is exposed. Reconnect explicitly to refresh tool metadata; modern
+subscription streams and their list-change notifications are not subscribed to.
+
+Run `python -m unittest tests.test_mcp tests.test_mcp_modern -v` for real subprocess
+fixtures exercising modern discovery/metadata, legacy fallback, explicit-version
+trust changes, recognized modern errors, malformed discovery, input-required
+refusal without replay, silent-probe recovery guidance, and cancellation IDs and
+cleanup. Existing trust, staging, credential, approval and plan-policy tests stay
+in the same gate. These tests make no model requests or network calls. This
+completes a documented local stdio integration, not HTTP/OAuth interoperability or
+a claim of full MCP conformance.

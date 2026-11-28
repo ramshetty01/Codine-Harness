@@ -58,8 +58,10 @@ class MCPSettings:
                 raw['version']!=1 or not isinstance(raw['servers'],dict) or len(raw['servers'])>8):
             raise ValueError('MCP settings require version 1 and at most eight servers.')
         for name,row in raw['servers'].items():
-            if not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',name) or not isinstance(row,dict) or set(row)!={'transport','argv','cwd','files','credential_env'}:
+            if not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',name) or not isinstance(row,dict) or set(row)-{'transport','argv','cwd','files','credential_env','protocol'} or not {'transport','argv','cwd','files','credential_env'}<=set(row):
                 raise ValueError('Invalid MCP server definition.')
+            if row.get('protocol','auto') not in ('auto','2026-07-28','2025-11-25'):
+                raise ValueError('MCP protocol must be auto, 2026-07-28 or 2025-11-25.')
             argv=row['argv']; files=row['files']; env=row['credential_env']
             if row['transport']!='stdio': raise ValueError('Only local stdio MCP servers are supported.')
             if (not isinstance(argv,list) or not 1<=len(argv)<=32 or
