@@ -109,6 +109,76 @@ raise SystemExit(cli.main(['--provider','nvidia']))
             finally:
                 terminal.close()
 
+    def test_followup_arriving_during_busy_reader_shutdown_runs_once(self):
+        # The barrier is reached only after the first run has returned. Keep its
+        # input reader alive there until the PTY has submitted a follow-up and
+        # observed its durable queue acknowledgement. This deterministically
+        # exercises the shutdown gap, without relying on provider timing sleeps.
+        driver = r'''
+import json, os, time
+from pathlib import Path
+from codine import cli
+from codine.busy_input import BusyInput
+pause = BusyInput.pause
+first_shutdown = True
+def gated_pause(self):
+    global first_shutdown
+    if first_shutdown:
+        first_shutdown = False
+        os.write(1, b'BUSY_SHUTDOWN_BARRIER\n')
+        deadline = time.monotonic() + 10
+        while not Path(os.environ['RELEASE_SHUTDOWN']).exists():
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Test shutdown barrier was not released')
+            time.sleep(.01)
+    return pause(self)
+BusyInput.pause = gated_pause
+class Fake:
+    def __init__(self, config): self.calls = 0
+    def close(self): pass
+    def complete(self, messages, schemas, model, emit):
+        self.calls += 1
+        capture = Path(os.environ['CAPTURE'])
+        records = json.loads(capture.read_text()) if capture.exists() else []
+        records.append(messages)
+        capture.write_text(json.dumps(records))
+        answer = 'FIRST_COMPLETE' if self.calls == 1 else 'SECOND_COMPLETE'
+        emit('text', answer)
+        return {'role':'assistant', 'content':answer}, 'stop', None
+cli.NvidiaProvider = Fake
+raise SystemExit(cli.main(['--provider','nvidia']))
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / 'capture.json'
+            release = Path(directory) / 'release-shutdown'
+            terminal = PTY([sys.executable, '-c', driver], directory,
+                           {'CAPTURE': str(capture), 'RELEASE_SHUTDOWN': str(release)})
+            try:
+                terminal.until('›'.encode())
+                terminal.send(b'initial request\r')
+                terminal.until(b'BUSY_SHUTDOWN_BARRIER')
+                self.assertEqual(len(json.loads(capture.read_text())), 1)
+                terminal.send(b'follow-up during shutdown\r')
+                terminal.until(b'Queued follow-up')
+                # The completed first run cannot consume this item until its
+                # reader joins. Release only after the real input path queued it.
+                release.touch()
+                terminal.until(b'SECOND_COMPLETE', timeout=5)
+                terminal.send(b'/queue\r')
+                terminal.until(b'Queued input: 0/32')
+                terminal.send(b'exit\r')
+                terminal.until(b'Goodbye!')
+                self.assertEqual(terminal.process.wait(timeout=5), 0)
+                requests = json.loads(capture.read_text())
+                self.assertEqual(len(requests), 2)
+                self.assertEqual(requests[1][-1]['content'], 'follow-up during shutdown')
+                snapshot = json.loads(next((Path(directory) / '.codine/sessions').glob('*.json')).read_text())
+                self.assertEqual(sum(message.get('role') == 'user' and message.get('content') == 'follow-up during shutdown'
+                                     for message in snapshot['messages']), 1)
+            finally:
+                release.touch()
+                terminal.close()
+
     def test_slash_menu_completion_in_narrow_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
             terminal = PTY([sys.executable, str(APP_ROOT / 'main.py'), '--provider', 'nvidia', '--project', directory], APP_ROOT, columns=52)
