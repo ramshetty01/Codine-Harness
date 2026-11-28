@@ -42,7 +42,7 @@ class SteeringTests(unittest.TestCase):
         self.registry.register(ToolSpec('action', 'action', {'type': 'object'}, lambda: executed.append(1)))
         def first(*args):
             self.inbox.add('Do not write; explain only', 'steer')
-            return {'role': 'assistant', 'content': None, 'tool_calls': [call('a'), call('b')]}, 'tool_calls', None
+            return {'role': 'assistant', 'content': None, 'tool_calls': [call('a'), call('b'), call('c')]}, 'tool_calls', None
         def complete(*args):
             if self.provider.complete.call_count == 1:
                 return first(*args)

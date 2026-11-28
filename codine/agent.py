@@ -294,12 +294,14 @@ class Agent:
                 for call in calls:
                     self.emit('tool_request', call)
                     self.emit('tool', call['function']['name'])
+                    executed = False
                     if self.queued_boundary():
                         result = '{"status":"skipped","reason":"New user steering arrived; this action was not started. Reconsider after reading it."}'
                     elif self.restart_requested:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
                     else:
                         self._phase = 'tool'
+                        executed = True
                         result = self.redactor.text(self.registry.execute(call))
                     signature_result = result
                     if getattr(self, 'artifact_store', None):
@@ -315,9 +317,10 @@ class Agent:
                     except ValueError:
                         stable = signature_result
                     signature = json.dumps([call['function']['name'], json.loads(call['function']['arguments']), stable], sort_keys=True)
-                    signatures[signature] += 1
-                    if signatures[signature] >= 3:
-                        loop_detected = True
+                    if executed:
+                        signatures[signature] += 1
+                        if signatures[signature] >= 3:
+                            loop_detected = True
                 self.session.repair_pending()
                 self.save()  # Commit complete assistant/tool group.
                 self.apply_steering()
