@@ -63,7 +63,7 @@ the supported-platform matrix.
 | M1 Representative tasks | Multi-language/multi-repository breadth, annotated incorrect edits/interventions, repeated controlled live comparisons |
 | M2 Sandboxed execution | Gate passed: 121 checks with zero skips, real build/smoke, and five repository fixtures; see MILESTONE2_ACCEPTANCE.md |
 | M3 Long-task reliability | Live long-task/summary-quality acceptance and inference retries only with verified billing/replay safety |
-| M4 Daily terminal workflow | Steering/queues, richer repo navigation and changesets, session UX, streaming and shared interactive budgets |
+| M4 Daily terminal workflow | Related change sets, file attachments, richer rendering/history, full usage visibility, symbol/document workflows |
 | M5 Customization | Hierarchical trusted configuration, skills/templates, reviewed memory and extension lifecycle |
 | M6 Integrations | MCP, SDK/RPC, deferred discovery, provider/auth integration and measured caching/fallback |
 | M7 Parallel work | Agent-side workers, isolated edits, shared supervision/budgets, task dependencies and session branching |
@@ -150,3 +150,39 @@ checkout with network blocked. File lifecycle details and limitations are in
 [46084628573](https://github.com/ramshetty01/Codine-Harness/actions/runs/46084628573)
 passed; this newer code receives its own hosted run after push. These are harness
 checks, not a live-model score.
+
+## Steering, relocation and model selection checkpoint
+
+A1/A2 add separate durable steering and follow-up lanes, one busy terminal reader,
+approval handoff, explicit queue review/removal and safe-boundary delivery.
+Recovery requires `/next` before sending old pending work. Streaming callbacks and
+foreground process cancellation are wired through the same stop event; a provider
+that supplies no callbacks can still wait until return/timeout. Skipped obsolete
+tool calls do not trigger repeated-action loop detection.
+
+S3 adds digest-confirmed offline project/session relocation with a fresh session
+owner, preserved archive/spending, pending-state refusal and no tool/queue replay.
+M3 caches bounded public model metadata with visible freshness and explicit stale
+selection. M2 adapts requests using model/endpoint capability evidence or explicit
+user declarations; required support is checked before reservation. Request plans
+are immutable between preflight and dispatch, preventing a second declaration
+read from creating a false pending charge. Stop requests arriving during balance
+metadata lookup release the proven-unsent reservation.
+
+Model file tools protect managed state and the user capability declaration even
+when the selected workspace is a broad home directory. Host commands retain their
+separately authorized OS permissions.
+
+Final integration passed **424 Docker-enabled tests with zero skips**, including
+real PTY input/approval/cancellation flows. A rebuilt installed wheel passed
+startup, session/resource/restart checks and 12/12 offline exercises with networking
+blocked outside the checkout. Previous hosted run
+[46086265609](https://github.com/ramshetty01/Codine-Harness/actions/runs/46086265609)
+passed all matrix jobs; this new checkpoint receives its own CI run.
+No inference calls were made and the real allowance remained unchanged.
+
+See [STEERING_AND_QUEUE.md](STEERING_AND_QUEUE.md),
+[SESSION_MIGRATION.md](SESSION_MIGRATION.md),
+[MODEL_CAPABILITIES.md](MODEL_CAPABILITIES.md), and
+[MODEL_CATALOG.md](MODEL_CATALOG.md). Follow-ups run after a completed conversation
+turn; this does not independently verify completion of the underlying coding task.
