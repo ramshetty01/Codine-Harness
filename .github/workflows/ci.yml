@@ -98,6 +98,7 @@ jobs:
           docker pull "$EVAL_IMAGE"
           docker tag "$EVAL_IMAGE" python:3.12-slim
           docker image inspect "$EVAL_IMAGE" --format '{{.Id}}'
+          docker build --network=none -f evals/images/node-python.Dockerfile -t codine-eval-node:22 evals/images
       - name: Docker boundary regressions
         env:
           CODINE_DOCKER_TESTS: '1'
@@ -113,6 +114,8 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/scripts/offline_guard
         run: |
           python -m codine.command_evals --offline --image "$EVAL_IMAGE"
+          python -m codine.command_evals --offline --pack dotenv --image "$EVAL_IMAGE"
+          python -m codine.command_evals --offline --pack javascript --image codine-eval-node:22
           python -m codine.stress --rounds 300 --files 5000 --commands 50
       - name: Retain Docker evidence
         if: always()

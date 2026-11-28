@@ -15,7 +15,7 @@ STATE_ROOT = (Path(_home_override).expanduser().resolve() / 'state' if _home_ove
 
 def eval_resource(name):
     """Return a bundled fixture path; never accept arbitrary relative paths."""
-    if name not in ('tasks.json', 'repository_tasks.json', 'command_tasks.json', 'dotenv_tasks.json'):
+    if name not in ('tasks.json', 'repository_tasks.json', 'command_tasks.json', 'dotenv_tasks.json', 'javascript_tasks.json'):
         raise ValueError('Unknown evaluation fixture.')
     directory = APP_ROOT / 'evals' if IS_CHECKOUT else Path(__file__).parent / 'resources' / 'evals'
     return directory / name

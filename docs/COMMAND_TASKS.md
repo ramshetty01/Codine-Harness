@@ -92,18 +92,57 @@ requests were made. `tests.test_dotenv_corpus` verifies provenance, license/sour
 tampering, candidate/final-source separation and vacuous/timeout failure handling;
 its Docker acceptance method requires `CODINE_DOCKER_TESTS=1`.
 
+## JavaScript configuration project
+
+The `javascript` pack combines the complete dependency-free
+[dot-prop source](https://github.com/sindresorhus/dot-prop/blob/d5d11c71a70bfb643a45d22821ed6d284240fce5/index.js)
+with a configuration module, JSON CLI, package metadata, JSON fixtures and real
+Node tests. Its exact upstream commit is
+`d5d11c71a70bfb643a45d22821ed6d284240fce5`; the complete
+[MIT license](https://github.com/sindresorhus/dot-prop/blob/d5d11c71a70bfb643a45d22821ed6d284240fce5/license)
+and source hashes are bundled and verified. The library is staged under `lib/`
+as explicitly selected source; generated/vendor-directory exclusions stay intact.
+
+Prepare the documented image explicitly, then run offline:
+
+```sh
+docker build --network=none -f evals/images/node-python.Dockerfile -t codine-eval-node:22 evals/images
+python -m codine.command_evals --offline --pack javascript --image codine-eval-node:22
+```
+
+The Dockerfile pins both official base manifests and copies only the Node binary
+into the Python image needed by the trusted manifest bootstrap. The small build
+context is `evals/images`, never the project directory or credentials. Initial
+image preparation can download the pinned bases; runtime tasks have no network,
+package installs, host mounts, or host execution fallback. Each report records
+the resulting immutable image ID and staged source manifest.
+
+| Task | Category | Independent final checks |
+| --- | --- | --- |
+| dotprop-falsy-config | Bug fix | False, zero, empty string, null, missing defaults, array paths, real JSON CLI |
+| dotprop-overrides | Feature | Deep-cloned ordered updates, arrays, escaped paths, rejected prototype paths, CLI integration |
+| dotprop-extract-lookup | Refactor | Implementation extracted to a separate module; named export identity and CLI compatibility |
+| dotprop-repair-null-test | Test repair | Correct public test; independent behavior checks; public test rejects a null-as-missing mutant |
+| dotprop-recover-extraction | Recovery | Repair inconsistent exports and a stale CLI import after an interrupted module move |
+
+All five reference repairs passed both checks in real isolated Node containers;
+all five broken baselines failed their final oracle (20 container executions).
+Unit checks cover provenance, tampering and candidate/checker separation. To run
+the optional Docker unit acceptance explicitly, set
+`CODINE_JS_TEST_IMAGE=codine-eval-node:22` for `tests.test_javascript_corpus`.
+CI prepares the image and retains command-run reports for all three packs.
+
 ## Remaining scope
 
-This is now ten tasks across two real upstream Python projects and all five
-categories, still a small synthetic source-derived corpus. It does not represent
-large application repositories, mined historical issues, multi-language builds,
-or live model solve rates. The command runner validates references; it still has
-no agent/model integration. The two older `repository_tasks.json` exercises are
-synthetic package-import tests and are not counted as upstream repository tasks.
+There are now fifteen source-derived tasks across three upstream projects and
+Python/JavaScript, covering all five categories. The JavaScript project adds
+cross-module CLI/configuration integration, not a claim of large application or
+framework-build coverage. These are synthetic exercises around pinned libraries,
+not mined historical issues. The command runner still validates reference repairs;
+live agent/model integration and repeated comparative measurements are separate
+work. The older `repository_tasks.json` examples are synthetic package-import
+tests and are not counted as upstream repository tasks.
 
-The [escape-string-regexp repository](https://github.com/sindresorhus/escape-string-regexp)
-was previously inspected (HEAD `a7f7dabaf336bda98d2166848af15d9168b10bcf`). No Node
-image is installed for its verification; none is silently pulled. Additional
-languages require explicitly prepared images and independently verified oracles.
-Do not feed local final-check reports or reference replacements to a model and
-subsequently describe those same cases as unseen or held-out evaluation.
+Do not feed final-check reports or reference replacements to a model and then
+call those same cases unseen evaluation. Fixture correctness is not model solve
+rate, and a five-task pass does not establish general coding-agent quality.

@@ -13,7 +13,7 @@ from .repository_executor import RepositoryExecutor
 from .staging import StagingLimits, _validate_path, snapshot_repository
 
 
-PACK_FILES = {'boltons': 'command_tasks.json', 'dotenv': 'dotenv_tasks.json'}
+PACK_FILES = {'boltons': 'command_tasks.json', 'dotenv': 'dotenv_tasks.json', 'javascript': 'javascript_tasks.json'}
 
 def validate_pack(pack):
     if pack.get('version') != 1 or not isinstance(pack.get('tasks'), list) or not pack['tasks']:
