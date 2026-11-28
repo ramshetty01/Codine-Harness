@@ -181,6 +181,20 @@ class Agent:
                 if isinstance(getattr(plan, 'note', None), str):
                     self.emit('status', plan.note)
             completion = lambda callback: self.provider.complete(messages, schemas, self.session.model, callback)
+        transport = completion
+        def completion(callback):
+            result = transport(callback)
+            _, _, usage = result
+            from .usage import record as record_usage
+            record_usage(self.session.usage_details, usage)
+            for key in ('input', 'output', 'total'):
+                value = self.session.usage_details['last'][key]
+                if value is not None:
+                    self.session.usage[key] += value
+            # A returned response can report tokens even when cost is absent or
+            # settlement later blocks. Persist counts without releasing money.
+            self.save()
+            return result
         self.queued_boundary()
         self._phase = 'accounting'
         if ledger and getattr(self, 'shared_budget_path', None) is not None:
@@ -202,13 +216,6 @@ class Agent:
                 self.emit('status', ledger.summary())
                 if blocked:
                     raise BudgetError(blocked)
-        from .usage import record as record_usage
-        record_usage(self.session.usage_details, usage)
-        for key in ('input', 'output', 'total'):
-            value = self.session.usage_details['last'][key]
-            if value is not None:
-                self.session.usage[key] += value
-        self.save()
         return self.redactor.data(reply), finish, usage
 
     def compact_context(self, ledger, window, output, guidance, schemas):

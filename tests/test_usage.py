@@ -51,3 +51,96 @@ class UsageTests(unittest.TestCase):
             data['usage_details'] = {'requests': True}
             path.write_text(json.dumps(data))
             with self.assertRaises(ValueError): store.load(session.id)
+
+
+class UsageAgentTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import Mock
+        from codine.agent import Agent
+        from codine.config import Config, Redactor
+        temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root=Path(temporary.name).resolve()
+        self.store=SessionStore(self.root); self.addCleanup(self.store.close)
+        self.session=Session.create(self.root,'fake','system',provider='openrouter')
+        self.provider=Mock()
+        self.agent=Agent(Config(self.root,provider='openrouter',api_key='fake'),self.provider,
+                         Mock(),self.store,self.session,Mock(),Redactor())
+
+    def response(self, usage):
+        self.provider.complete.return_value=({'role':'assistant','content':'done'},'stop',usage)
+
+    def test_completed_dict_sdk_and_missing_counts_persist_once(self):
+        from openai.types.completion_usage import CompletionUsage
+        self.response({'prompt_tokens':4,'completion_tokens':2,'total_tokens':6,
+                       'prompt_tokens_details':{'cached_tokens':0}})
+        self.agent.complete([],[],None)
+        self.response(CompletionUsage(prompt_tokens=10,completion_tokens=5,total_tokens=15,
+            completion_tokens_details={'reasoning_tokens':3}))
+        self.agent.complete([],[],None)
+        self.response(None)
+        self.agent.complete([],[],None)
+        saved=self.store.load(self.session.id)
+        self.assertEqual(saved.usage,{'input':14,'output':7,'total':21})
+        self.assertEqual(saved.usage_details['requests'],3)
+        self.assertEqual(saved.usage_details['reported']['total'],2)
+        self.assertEqual(saved.usage_details['totals']['reasoning'],3)
+        self.assertIsNone(saved.usage_details['last']['total'])
+
+    def test_missing_cost_and_overrun_record_tokens_without_resetting_budget(self):
+        from unittest.mock import Mock
+        from codine.budget import Budget, BudgetError
+        for shared in (False,True):
+            for cost in (None,.30):
+                with self.subTest(shared=shared,cost=cost):
+                    session=Session.create(self.root,'fake','system',provider='openrouter')
+                    self.agent.session=session
+                    budget=Budget.create(); session.billing=budget.state
+                    ledger=self.root/(session.id+'-budget.json')
+                    if shared: self.agent.configure_shared_budget(ledger,Mock(return_value={'limit_remaining':5}))
+                    elif hasattr(self.agent,'shared_budget_path'): del self.agent.shared_budget_path
+                    usage=SimpleNamespace(prompt_tokens=7,completion_tokens=3,total_tokens=10)
+                    if cost is not None: usage.cost=cost
+                    self.response(usage)
+                    with self.assertRaises(BudgetError): self.agent.complete([],[],budget)
+                    saved=self.store.load(session.id)
+                    self.assertEqual(saved.usage_details['requests'],1)
+                    self.assertEqual(saved.usage['total'],10)
+                    if cost is None:
+                        self.assertEqual(saved.billing['pending'],'0.25')
+                        if shared: self.assertIsNotNone(json.loads(ledger.read_text())['pending'])
+                    else:
+                        self.assertEqual(saved.billing['spent'],'0.3')
+                        self.assertTrue(saved.billing['blocked'])
+                        self.assertIsNone(saved.billing['pending'])
+
+    def test_interruption_and_rejection_never_infer_completed_usage(self):
+        for error in (KeyboardInterrupt(),RuntimeError('rejected')):
+            self.provider.complete.side_effect=error
+            with self.assertRaises(type(error)): self.agent.complete([],[],None)
+            self.assertEqual(self.session.usage_details,{})
+            self.assertEqual(self.session.usage['total'],0)
+
+    def test_save_rejects_malformed_details_before_replacing_archive(self):
+        self.store.save(self.session)
+        before=self.store.path(self.session.id).read_bytes()
+        self.session.usage_details={'requests':False}
+        with self.assertRaises(ValueError): self.store.save(self.session)
+        self.assertEqual(self.store.path(self.session.id).read_bytes(),before)
+
+    def test_usage_save_failure_leaves_charge_unsettled(self):
+        from unittest.mock import patch
+        from codine.agent import PersistenceError
+        from codine.budget import Budget
+        budget=Budget.create(); self.session.billing=budget.state
+        self.response(SimpleNamespace(cost=.01,total_tokens=5))
+        original=self.store.save
+        def save(session):
+            if session.usage_details:
+                raise OSError('disk unavailable')
+            original(session)
+        with patch.object(self.store,'save',side_effect=save):
+            with self.assertRaises(PersistenceError): self.agent.complete([],[],budget)
+        saved=self.store.load(self.session.id)
+        self.assertEqual(saved.billing['pending'],'0.25')
+        self.assertEqual(saved.billing['spent'],'0')
+        self.provider.complete.assert_called_once()

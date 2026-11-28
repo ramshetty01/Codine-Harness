@@ -167,6 +167,8 @@ class SessionStore:
         self.active = None
 
     def save(self, session):
+        from .usage import validate as validate_usage
+        validate_usage(session.usage_details)
         from .task_plan import validate_plan
         validate_plan(session.plan)
         validate_title(session.title)

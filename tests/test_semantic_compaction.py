@@ -67,6 +67,9 @@ class SemanticCompactionTests(unittest.TestCase):
         self.assertEqual(self.session.billing['spent'], '0.03')
         self.assertIsNone(self.session.billing['pending'])
         self.assertEqual(self.session.usage['total'], 50)
+        self.assertEqual(self.session.usage_details['requests'], 2)
+        self.assertEqual(self.session.usage_details['reported']['total'], 1)
+        self.assertEqual(self.session.usage_details['totals']['total'], 50)
         normal = self.requests[1][0]
         self.assertIn('Session task plan', normal[0]['content'])
         self.assertEqual(normal[1]['role'], 'user')

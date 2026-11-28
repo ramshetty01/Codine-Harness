@@ -103,11 +103,9 @@ class SharedBudgetTests(unittest.TestCase):
     def test_crash_after_shared_settlement_recovers_local_without_rebilling(self):
         agent, local = self.agent()
         original = agent.save
-        calls = 0
         def save():
-            nonlocal calls
-            calls += 1
-            if calls == 2:
+            # Target the settlement boundary, not an incidental save count.
+            if agent.session.billing['pending'] is None and agent.session.billing['spent'] != '0':
                 raise PersistenceError('simulated crash before local settlement was saved')
             original()
         agent.save = save
@@ -117,6 +115,7 @@ class SharedBudgetTests(unittest.TestCase):
         agent.save = original
         budget_status(agent)
         self.assertEqual(agent.session.billing['spent'], '0.01')
+        self.assertEqual(agent.session.usage_details['requests'], 1)
         self.assertIsNone(agent.session.billing['pending'])
         with SharedBudget(self.path, 'fake-key', owner='observer') as shared:
             self.assertEqual(shared.ledger.state['spent'], '0.01')
