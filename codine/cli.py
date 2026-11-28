@@ -37,6 +37,8 @@ HELP = '''Commands
   /instructions [PATH]  Inspect global/root and scoped file guidance
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
+  /extensions           Discover, list, load, unload, reload or inspect trusted extensions
+  /ext NAME:COMMAND     Invoke an explicitly loaded extension command
   /trust                Review, allow, list or revoke executable extension snapshots
   /memory ACTION        Review proposed/approved project facts; list/show/add/approve/edit/delete
   /skills               Discover skill descriptions without loading bodies
@@ -204,6 +206,9 @@ def command(text, agent, workspace, ui):
             ui.write('Undone ' + result['path'])
         else:
             ui.write(result.get('message', result['status'].capitalize()))
+    elif name in ('/extensions', '/ext'):
+        from .extension_commands import command as extension_command
+        extension_command(name[1:], argument, agent, workspace, ui)
     elif name == '/trust':
         from .extension_trust import command as trust_command
         trust_command(argument, agent, workspace, ui)

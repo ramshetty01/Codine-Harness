@@ -53,11 +53,10 @@ def read_bytes(root, name, limit):
         os.close(directory)
 
 
-def snapshot_extension(workspace, manifest_path):
-    name = relative_path(manifest_path)
-    target = workspace.resolve(name)
-    workspace._authorize_read(target)
-    raw, identity = read_bytes(workspace.root, name, min(LIMIT, 65536))
+def parse_manifest(raw):
+    """Validate manifest metadata without reading or importing declared source."""
+    if len(raw) > 65536:
+        raise ValueError('Extension manifest exceeds 64 KB.')
     def unique(pairs):
         value = {}
         for key, item in pairs:
@@ -91,6 +90,16 @@ def snapshot_extension(workspace, manifest_path):
                 any(not (x.isascii() and (x.isalnum() or x in '-_.:')) for x in c) for c in caps) or
             len(set(caps)) != len(caps) or not set(caps) <= {'tools', 'commands', 'events', 'ui'}):
         raise ValueError('Capabilities must be distinct bounded ASCII labels.')
+    return manifest
+
+
+def snapshot_extension(workspace, manifest_path):
+    name = relative_path(manifest_path)
+    target = workspace.resolve(name)
+    workspace._authorize_read(target)
+    raw, identity = read_bytes(workspace.root, name, min(LIMIT, 65536))
+    manifest = parse_manifest(raw)
+    files = manifest['files']
     rows, total = [], len(raw)
     for path in sorted(files):
         project_path = (Path(name).parent / path).as_posix()
