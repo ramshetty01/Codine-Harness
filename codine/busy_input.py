@@ -113,7 +113,7 @@ class BusyInput:
 
 @contextmanager
 def busy_input(ui, inbox):
-    if not ui.interactive:
+    if not ui.interactive or getattr(ui, 'rpc_transport', False):
         yield
         return
     reader = BusyInput(ui, inbox)

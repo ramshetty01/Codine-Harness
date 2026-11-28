@@ -104,6 +104,7 @@ def parser():
     result.add_argument('--policy', help='Explicit user-owned command policy JSON; project files are never auto-loaded')
     result.add_argument('--image', help='Locally installed Docker image; resolved to an immutable image ID')
     result.add_argument('--plan', action='store_true', help='Read-only tools; no commands, edits, or model-requested restart')
+    result.add_argument('--rpc', action='store_true', help='Persistent local JSONL RPC with explicit approval responses')
     result.add_argument('--json', action='store_true', help='One-shot JSONL event output; approvals denied')
     result.add_argument('--check', action='store_true', help='Validate startup without credentials or session writes')
     return result
@@ -119,6 +120,7 @@ def show_error(ui, error):
             message += f' Provider retry-after hint: {failure.retry_after_seconds:g}s (not permission to replay a billed request).'
     else:
         message = str(error)
+    if getattr(ui, 'rpc_transport', False): ui.active_error = message
     ui.write('Error: ' + message)
 
 
@@ -416,6 +418,8 @@ def command(text, agent, workspace, ui):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.rpc and any((args.json, args.check, args.prompt is not None, args.migrate_session)):
+        parser().error('--rpc cannot be combined with --json, --check, --prompt or migration.')
     if args.migrate_session:
         if not args.from_project or any((args.check, args.prompt is not None, args.provider, args.model,
                 args.executor, args.execution_profile, args.policy, args.image, args.plan)):
@@ -463,7 +467,11 @@ def main(argv=None):
             print(message)
         return 0
     store = provider = agent = jobs = None
-    ui = JsonTerminal(Redactor()) if args.json else Terminal(Redactor())
+    if args.rpc:
+        from .rpc_terminal import RpcTerminal
+        ui = RpcTerminal(Redactor())
+    else:
+        ui = JsonTerminal(Redactor()) if args.json else Terminal(Redactor())
     try:
         from .command_policy import CommandPolicy
         command_policy = CommandPolicy.load(args.policy)
@@ -558,7 +566,7 @@ def main(argv=None):
         agent.command_policy_path = str(command_policy.source) if args.policy else None
         agent.execution_profile_path = str(execution_profile.source) if execution_profile else None
         agent.execution_credentials = execution_credentials
-        agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
+        agent.registry = build_registry(workspace, lambda: ({'status':'declined','reason':'RPC clients restart explicitly with the saved session.'} if args.rpc else agent.request_restart(ui.approve)))
         from .extension_trust import ExtensionTrustStore
         from .extension_manager import ExtensionManager
         agent.extension_trust = ExtensionTrustStore()
@@ -592,12 +600,13 @@ def main(argv=None):
         if not config.api_key:
             ui.write(f'No {config.provider.upper()}_API_KEY configured. Offline commands are available; model requests need a key.')
         one_shot = args.prompt
-        if one_shot is None and not sys.stdin.isatty():
+        if one_shot is None and not args.rpc and not sys.stdin.isatty():
             one_shot = sys.stdin.read()
         def active_inbox():
             if not getattr(agent, 'inbox', None) or agent.inbox.path != store.path(agent.session.id).with_suffix('.inbox'):
                 agent.inbox = Inbox(store, agent.session)
                 workspace.cancel_event = agent.inbox.cancel
+            if args.rpc: ui.bind_inbox(agent.inbox)
             return agent.inbox
 
         def turn(text, queued_item=None):
@@ -605,7 +614,8 @@ def main(argv=None):
                 inbox = active_inbox()
                 if inbox.failure:
                     inbox.check_cancel()
-                inbox.cancel.clear()
+                if args.rpc: ui.begin_turn(inbox)
+                else: inbox.cancel.clear()
                 while True:
                     with busy_input(ui, inbox):
                         outcome = agent.run_turn(text, queued_item=queued_item)
@@ -713,6 +723,8 @@ def main(argv=None):
             store.close()
         if provider:
             provider.close()
+        if args.rpc:
+            ui.close()
         if cleanup_failed:
             raise SystemExit(1)
 
