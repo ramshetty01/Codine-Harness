@@ -126,3 +126,20 @@ class OrchestrationTests(unittest.TestCase):
         self.handlers[0].assert_called_once();core.assert_not_called()
         validate_messages(self.session.messages)
         self.assertIsNone(self.session.pending)
+
+    def test_structured_instruction_deferral_stops_dependent_core_write(self):
+        for refusal in ({'status':'skipped','reason':'Applicable instruction documents changed'},
+                        {'status':'deferred'}, {'action_executed':False}):
+            with self.subTest(refusal=refusal):
+                self.session.messages=self.session.messages[:1]
+                manager=Mock();manager.context.return_value=('',[])
+                manager.before_tool.side_effect=lambda call,effect: json.dumps(refusal) if call['function']['name']=='external_a' else None
+                self.agent.instruction_manager=manager
+                core=Mock(return_value={'ok':True})
+                self.registry.tools['core_write']=ToolSpec('core_write','Core',{'type':'object'},core,effect='write')
+                self.provider.complete.side_effect=[(reply([call('external_a','a'),call('core_write','b')]),'tool_calls',None),
+                                                    ({'role':'assistant','content':'Replan.'},'stop',None)]
+                self.agent.run_turn('Perform dependent actions.')
+                self.handlers[0].assert_not_called();core.assert_not_called()
+                validate_messages(self.session.messages)
+                self.assertEqual(json.loads(self.session.messages[-2]['content'])['status'],'skipped')

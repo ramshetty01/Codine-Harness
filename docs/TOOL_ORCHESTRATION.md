@@ -18,7 +18,8 @@ with 1–16 attempts per batch and a turn limit between that batch limit and 64.
 Tool arguments and project instructions cannot change these limits.
 
 After an external result reports an explicit top-level error, status
-`declined`/`failed`/`error`/`blocked`, or an MCP `isError: true`, all remaining
+`declined`/`failed`/`error`/`blocked`/`skipped`/`deferred`, explicit
+`action_executed: false`, or an MCP `isError: true`, all remaining
 **actions** in that batch are saved as skipped, including dependent core writes.
 This includes explicit instruction-policy refusals before an external handler
 starts. A limit check also precedes core actions that follow the final permitted

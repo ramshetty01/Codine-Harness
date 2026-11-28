@@ -48,7 +48,8 @@ class ExternalCalls:
         try: value = json.loads(result)
         except (ValueError, RecursionError): return
         if not isinstance(value, dict): return
-        failed = ('error' in value and value['error'] not in (None, False, '')) or value.get('status') in ('declined','failed','error','blocked')
+        failed = ('error' in value and value['error'] not in (None, False, '')) or value.get('status') in ('declined','failed','error','blocked','skipped','deferred')
+        failed = failed or value.get('action_executed') is False
         mcp = value.get('untrusted_server_result')
         if isinstance(mcp, dict) and mcp.get('isError') is True: failed = True
         if failed:
