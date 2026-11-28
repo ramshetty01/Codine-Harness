@@ -111,3 +111,24 @@ class ExtensionLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.dispatch('panel demo:status')
         result=self.invoke_tool()
         self.assertIn('error',result)
+
+    def test_idle_execution_uses_fresh_cancel_scope_and_restores_finished_turn(self):
+        stale=threading.Event();stale.set();self.ws.cancel_event=stale
+        self.grant()
+        self.dispatch('load demo/manifest.json')
+        self.assertIs(self.ws.cancel_event,stale)
+        self.assertTrue(stale.is_set())
+        self.assertEqual(command('ext','demo:hello after cancel',self.agent,self.ws,self.ui),
+                         {'version':'v1','text':'after cancel'})
+        self.assertEqual(self.dispatch('panel demo:status'),'panel v1')
+        self.dispatch('reload demo')
+        self.assertIs(self.ws.cancel_event,stale)
+        # Direct model/runtime execution still honors the active turn cancellation.
+        with self.assertRaises(KeyboardInterrupt):self.manager.invoke_command('demo:hello','blocked')
+        self.assertIs(self.ws.cancel_event,stale)
+
+    def test_idle_scope_restores_cancel_flag_on_failed_load(self):
+        stale=threading.Event();stale.set();self.ws.cancel_event=stale
+        with self.assertRaises(ValueError):self.dispatch('load demo/manifest.json')
+        self.assertIs(self.ws.cancel_event,stale)
+        self.assertTrue(stale.is_set())

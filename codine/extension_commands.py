@@ -1,5 +1,7 @@
 """Idle terminal extension controls; discovery reads metadata, never imports code."""
 import json
+import threading
+from contextlib import contextmanager
 
 from .extension_manifest import parse_manifest, read_bytes
 from .repository_search import list_files
@@ -60,6 +62,24 @@ def discover(workspace, path='.'):
             'notice': 'Metadata only; source existence and trust are not verified. Use /trust review MANIFEST, inspect source, then /trust allow DIGEST before /extensions load MANIFEST.'}
 
 
+@contextmanager
+def idle_execution(workspace, enabled):
+    """A new idle action must not inherit cancellation of a finished model turn."""
+    if not enabled:
+        yield
+        return
+    missing = object()
+    previous = getattr(workspace, 'cancel_event', missing)
+    workspace.cancel_event = threading.Event()
+    try:
+        yield
+    finally:
+        if previous is missing:
+            del workspace.cancel_event
+        else:
+            workspace.cancel_event = previous
+
+
 def command(kind, argument, agent, workspace, ui):
     if getattr(agent, '_in_turn', False):
         raise ValueError('Extension commands run only at the idle prompt; submit them to the command queue while busy.')
@@ -84,15 +104,16 @@ def command(kind, argument, agent, workspace, ui):
     manager = getattr(agent, 'extension_manager', None)
     if manager is None:
         raise ValueError('Extension runtime is unavailable in this session; discovery and trust review remain available.')
-    if action == 'list':
-        result = manager.list()
-    elif action == 'invoke_command':
-        result = manager.invoke_command(value, payload)
-    elif action == 'panel':
-        if value.count(':') != 1 or any(not part for part in value.split(':')):
-            raise ValueError(USAGE)
-        result = manager.panel(value)
-    else:
-        result = getattr(manager, action)(value)
+    with idle_execution(workspace, action in ('load', 'reload', 'panel', 'invoke_command')):
+        if action == 'list':
+            result = manager.list()
+        elif action == 'invoke_command':
+            result = manager.invoke_command(value, payload)
+        elif action == 'panel':
+            if value.count(':') != 1 or any(not part for part in value.split(':')):
+                raise ValueError(USAGE)
+            result = manager.panel(value)
+        else:
+            result = getattr(manager, action)(value)
     ui.write(result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, indent=2))
     return result
