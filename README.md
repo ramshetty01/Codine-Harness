@@ -110,7 +110,7 @@ Piped input is one message. Noninteractive approvals are denied; lines of a pipe
 |---|---|
 | `/help` | Show commands and keybindings |
 | `/plan` | Read-only file tools; `/permissions ask` enables mutations again |
-| `/instructions` | Show bounded root AGENTS.md and CODINE.md project guidance |
+| `/instructions [PATH]` | Inspect global/root and scoped instruction provenance |
 | `/budget` | Show OpenRouter session costs and pending reservation |
 | `/session`, `/sessions [query]` | Show current session / search and resume named sessions |
 | `/rename TITLE` | Name the current session |
@@ -167,7 +167,7 @@ Before executing tools, Codine saves the assistant's requested batch in a journa
 
 Changing source on disk does not replace functions already in memory. `/restart` validates owned Python files and runs a fresh `--check` subprocess before replacing the current process. It resumes the same project and session. Auto-edit resets to `ask`; explicitly selected planning mode is retained by `/restart`. A failed check keeps the old process alive. This catches syntax/import failures, not every logic bug.
 
-For self-development, start with the Codine repository as `--project`. Read the relevant module, make one small change, run tests, then restart. Core paths (`main.py`, `codine/`, requirements, ignore rules, PRD, recovery guide), and root `AGENTS.md`/`CODINE.md` always require approval in auto-edit mode.
+For self-development, start with the Codine repository as `--project`. Read the relevant module, make one small change, run tests, then restart. Core paths (`main.py`, `codine/`, requirements, ignore rules, PRD, recovery guide), and `AGENTS.md`/`CODINE.md` at every project depth always require approval in auto-edit mode.
 
 ## Planning, instructions, and automation
 
@@ -181,7 +181,7 @@ python -m codine.evals --offline --executor docker --report .codine/evals/docker
 
 Planning restricts both the advertised schemas and actual dispatch. It allows listing, reading, search, and syntax parsing; it does not allow commands, writes, or model-requested restarts. It does **not** disable model inference: typing a normal task still uses the configured model. Use offline slash commands/tests when no inference is intended.
 
-Root `AGENTS.md` loads first, then root `CODINE.md`, up to 16 KB combined. Guidance refreshes each turn and counts toward the context budget. It cannot grant permissions. Nested/global guidance and automatic reference imports are not implemented. `/instructions` shows exactly what would load.
+Optional user guidance comes from `~/.config/codine/AGENTS.md`; project conventions come from root and selected ancestor-directory `AGENTS.md`/`CODINE.md`. Explicit user requests and harness rules outrank all documents; user-global guidance outranks project conventions, and deeper project guidance applies only to its subtree. Loading is bounded, policy-aware and non-executable; referenced files are not imported automatically. Newly discovered guidance defers model-requested mutations until the next request can see it. `/instructions [PATH]` and `/context` expose scope and provenance. See [instruction hierarchy](docs/INSTRUCTION_HIERARCHY.md) for limits and trust boundaries.
 
 `--json` is a one-shot adapter with versioned JSONL records on stdout, including paired `tool_request`/`tool_response` IDs and a final `run_end` outcome. Approval is always denied in this mode. Step, output, and repeated-action limits exit with failure rather than claiming task success. `/restart` is interactive-only; scripts start another process using `--resume`.
 

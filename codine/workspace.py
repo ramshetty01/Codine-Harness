@@ -39,9 +39,10 @@ class Workspace:
         from .paths import STATE_ROOT
         from .capabilities import USER_CAPABILITIES
         from .prompt_templates import USER_TEMPLATES
+        from .instructions import USER_INSTRUCTIONS
         self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
-        self.protected_paths = {USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
+        self.protected_paths = {USER_INSTRUCTIONS.resolve(), USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}
 
     def _file_decision(self, operation, target):
@@ -73,7 +74,11 @@ class Workspace:
             if current.is_symlink():
                 raise ValueError("Symbolic links are not allowed.")
         for protected in getattr(self, 'protected_paths', set()):
-            if current.resolve() == protected or (current.exists() and protected.exists() and current.samefile(protected)):
+            # Reserve spelling variants even before a config file exists: a
+            # differently cased creation can alias the trusted path on macOS.
+            current_name = unicodedata.normalize('NFC', str(current.resolve())).casefold()
+            protected_name = unicodedata.normalize('NFC', str(protected.resolve())).casefold()
+            if current_name == protected_name or (current.exists() and protected.exists() and current.samefile(protected)):
                 raise ValueError('User policy/configuration is protected from model file tools; edit it outside Codine.')
         if any(current.resolve().is_relative_to(root) for root in self.protected_roots):
             raise ValueError('Managed application state is protected from model file tools.')
@@ -174,7 +179,7 @@ class Workspace:
         return search(self, query, path, limit, glob, regex, case_sensitive, respect_ignore)
 
     def _core(self, target):
-        if target in (self.root / 'AGENTS.md', self.root / 'CODINE.md'):
+        if target.name.casefold() in ('agents.md', 'codine.md'):
             return True
         if not self.app_root:
             return False

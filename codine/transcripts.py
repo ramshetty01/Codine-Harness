@@ -151,6 +151,7 @@ def command(kind, argument, agent, workspace, ui, system):
             agent.session = replacement
             workspace.change_session_id = replacement.id
             workspace.change_group_id = None
+            if getattr(agent, 'instruction_manager', None): agent.instruction_manager.reset()
             workspace.read_versions.clear()
             getattr(workspace, 'notebook_reads', {}).clear()
             workspace.read_ranges.clear()

@@ -34,7 +34,7 @@ HELP = '''Commands
   /cancel ID            Request background job cancellation
   /sandbox              Inspect effective command isolation and image
   /policy               Show user command rules and last explained decision
-  /instructions         Show loaded root project guidance
+  /instructions [PATH]  Inspect global/root and scoped file guidance
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /templates            List permitted reusable prompt templates
@@ -140,9 +140,13 @@ def command(text, agent, workspace, ui):
         workspace.mode = 'plan'
         ui.write('Planning mode: read/search/syntax tools only. Use /permissions ask to enable changes.')
     elif name == '/instructions':
-        guidance, paths = load_instructions(workspace.root, authorize=lambda path:
-            workspace._authorize_read(workspace.resolve(path.relative_to(workspace.root).as_posix())))
-        ui.write(guidance or 'No permitted root AGENTS.md or CODINE.md loaded. Nested instructions are not auto-loaded.')
+        from .instructions import InstructionManager
+        manager = getattr(agent, 'instruction_manager', None) or InstructionManager(workspace)
+        if argument:
+            manager = InstructionManager(workspace, user_path=manager.user_path)
+            manager.select(argument, directory=(workspace.root / argument).is_dir())
+        guidance, paths = manager.context(explicit=True)
+        ui.write(guidance or 'No permitted instruction documents loaded.')
     elif name == '/status':
         from .status_view import snapshot, lines
         ui.write('\n'.join(lines(snapshot(agent, workspace, ui, session.execution.get('executor', 'host')))))
@@ -276,6 +280,7 @@ def command(text, agent, workspace, ui):
         agent.session = replacement
         workspace.change_session_id = replacement.id
         workspace.change_group_id = None
+        if getattr(agent, 'instruction_manager', None): agent.instruction_manager.reset()
         workspace.read_versions.clear()
         getattr(workspace, 'notebook_reads', {}).clear()
         workspace.read_ranges.clear()
@@ -478,12 +483,14 @@ def main(argv=None):
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
         agent.authorize_instructions = workspace.read_allowed_without_prompt
+        from .instructions import InstructionManager
+        agent.instruction_manager = InstructionManager(workspace)
         if config.provider == 'openrouter':
             from .paths import STATE_ROOT
             agent.configure_shared_budget(STATE_ROOT / 'evals' / 'budget.json')
         from .attachments import Attachments
         agent.attachments = Attachments(workspace, redactor, ui.write)
-        agent.prepare_input = agent.attachments.prepare
+        agent.prepare_input = lambda text: agent.instruction_manager.prepare_input(text, agent.attachments)
         if getattr(ui, 'completer', None):
             ui.completer.attachment_paths = agent.attachments.paths
         agent.jobs = jobs

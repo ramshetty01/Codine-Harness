@@ -112,6 +112,8 @@ class Agent:
         self._started_plan_revision = self.session.plan_revision
         self.session.last_run = run_record(self.session, 'running', self._started_plan_revision)
         try:
+            if getattr(self, 'instruction_manager', None):
+                self.instruction_manager.reset()
             if getattr(self, 'on_turn_start', None):
                 self.on_turn_start(self.session.last_run['id'])
             return self.finish(self._run_turn(text, queued_item=queued_item) if queued_item else self._run_turn(text))
@@ -150,6 +152,12 @@ class Agent:
             raise
         finally:
             self._in_turn = False
+
+    def instruction_context(self, mark_seen=False):
+        manager = getattr(self, 'instruction_manager', None)
+        if manager:
+            return manager.context(mark_seen=mark_seen)
+        return load_instructions(self.config.project, authorize=getattr(self, 'authorize_instructions', None))
 
     def configure_shared_budget(self, path, read_metadata=None):
         """Normal CLI sessions share a durable allowance; tests inject temp state."""
@@ -227,7 +235,8 @@ class Agent:
     def compact_context(self, ledger, window, output, guidance, schemas):
         import copy
         plan = self.redactor.text(plan_context(self.session))
-        end, request = compaction_boundary(self.session, self.config.context_chars, window, output, plan)
+        instruction_data = self.redactor.text(guidance) if getattr(self, 'instruction_manager', None) else ''
+        end, request = compaction_boundary(self.session, self.config.context_chars, window, output, plan, instruction_data)
         self.emit('status', 'Summarizing complete conversation groups with one bounded provider request…')
         reply, finish, _ = self.complete(request, [], ledger, emit=lambda *args: None)
         summary = parse_summary(reply, finish)
@@ -256,10 +265,7 @@ class Agent:
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
         signatures = Counter()
         loop_detected = False
-        guidance, paths = load_instructions(self.config.project, authorize=getattr(self, 'authorize_instructions', None))
-        guidance = self.redactor.text(guidance)
-        if paths:
-            self.emit('status', 'Project instructions: ' + ', '.join(paths))
+        previous_sources = None
         ledger = None
         if self.config.provider == 'openrouter':
             if not self.config.api_key:
@@ -280,6 +286,11 @@ class Agent:
             self.apply_steering()
             window, output = self.config.request_limits(self.session.model)
             schemas = self.registry.schemas()
+            guidance, paths = self.instruction_context(mark_seen=True)
+            guidance = self.redactor.text(guidance)
+            if paths and paths != previous_sources:
+                self.emit('status', 'Instructions: ' + ', '.join(paths))
+            previous_sources = paths
             context_guidance = guidance + self.redactor.text(plan_context(self.session))
             try:
                 messages, start = project_context(self.session, schemas, self.config.context_chars, context_guidance,
@@ -324,8 +335,16 @@ class Agent:
                         result = '{"status":"skipped","reason":"Restart already requested; retry after restart if still needed."}'
                     else:
                         self._phase = 'tool'
-                        executed = True
-                        result = self.redactor.text(self.registry.execute(call))
+                        manager = getattr(self, 'instruction_manager', None)
+                        deferred = None
+                        if manager:
+                            spec = self.registry.tools.get(call['function']['name'])
+                            try:
+                                deferred = manager.before_tool(call, spec.effect if spec else 'read')
+                            except (ValueError, OSError) as error:
+                                deferred = json.dumps({'error': str(error), 'action_executed': False})
+                        executed = deferred is None
+                        result = self.redactor.text(deferred if deferred is not None else self.registry.execute(call))
                     signature_result = result
                     if getattr(self, 'artifact_store', None):
                         result = self.artifact_store.offload(call['function']['name'], result)

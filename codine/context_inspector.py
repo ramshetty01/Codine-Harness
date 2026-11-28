@@ -8,10 +8,13 @@ from .task_plan import plan_context
 
 def inspect_context(agent):
     schemas = agent.registry.schemas()
-    guidance, paths = load_instructions(agent.config.project, authorize=getattr(agent, 'authorize_instructions', None))
+    guidance, paths = (agent.instruction_context() if hasattr(agent, 'instruction_context') else
+                       load_instructions(agent.config.project, authorize=getattr(agent, 'authorize_instructions', None)))
     guidance = agent.redactor.text(guidance + plan_context(agent.session))
     window, output = agent.config.request_limits(agent.session.model)
     report = {'estimate_method': 'conservative UTF-8 byte estimate, not a provider tokenizer',
+              'instruction_provenance': [{key: value for key, value in row.items() if key != 'content'}
+                  for row in getattr(getattr(agent, 'instruction_manager', None), 'latest', [])],
               'instructions': paths, 'project_instruction_characters': len(guidance),
               'archive_messages': len(agent.session.messages), 'summary': (f'Semantic summary covers archive before message {agent.session.summary_end}; source archive retained.' if agent.session.context_summary else 'No semantic summary is stored.'),
               'schema_count': len(schemas), 'schema_characters': len(json.dumps(schemas, ensure_ascii=False)),
@@ -39,6 +42,8 @@ def format_context(report):
              f"Tools: {report['schema_count']} schemas, {report['schema_characters']} characters",
              f"Budget: {report['local_context_limit']} estimated tokens; {report['output_reserved']} reserved for output",
              f"Independent character ceiling: {report['character_limit']}"]
+    for row in report.get('instruction_provenance', []):
+        lines.append(f"  {row['source']} · {row['kind']} · scope {row['scope']} · SHA256 {row['sha256']}")
     if report['status'] == 'fits':
         lines.extend([f"Active: {report['active_messages']} messages; {report['omitted_messages']} archived messages omitted",
                       f"Input estimate: {report['estimated_input']}; remaining estimate: {report['estimated_remaining']}",
