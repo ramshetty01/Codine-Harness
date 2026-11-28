@@ -162,7 +162,8 @@ class MCPTests(unittest.TestCase):
         command('trust local',self.agent,self.workspace,self.ui)
         event=threading.Event();event.set();self.workspace.cancel_event=event
         command('connect local',self.agent,self.workspace,self.ui)
-        self.assertFalse(event.is_set())
+        self.assertTrue(event.is_set())
+        self.assertIs(self.workspace.cancel_event,event)
         command('revoke local',self.agent,self.workspace,self.ui)
         self.assertEqual(self.registry.tools,{})
         self.agent._in_turn=True

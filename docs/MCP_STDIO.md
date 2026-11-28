@@ -165,3 +165,13 @@ cleanup. Existing trust, staging, credential, approval and plan-policy tests sta
 in the same gate. These tests make no model requests or network calls. This
 completes a documented local stdio integration, not HTTP/OAuth interoperability or
 a claim of full MCP conformance.
+
+
+The frame parser rejects duplicate JSON fields before protocol classification,
+so an ambiguous error code cannot trigger a legacy fallback. Incoming JSON is
+bounded to 32 nesting levels and 10,000 values before recursive sanitization;
+optional result `_meta` must be an object. Malformed frames retire the connection
+without replaying tools. An explicit idle `/mcp connect` uses its own cancellation
+scope and restores the prior turn's cancellation flag afterward; it does not
+clear cancellation for a later model action. Legacy and modern subprocess tests
+cover these boundaries alongside the original integration cases.

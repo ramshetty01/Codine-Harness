@@ -30,6 +30,27 @@ class MCPRemoteError(MCPError):
         super().__init__('MCP server rejected request: '+message[:2000])
 
 
+def decode_frame(line):
+    """Reject ambiguous JSON and bound structure before recursive redaction."""
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise ValueError('Duplicate MCP JSON field.')
+            value[key]=item
+        return value
+    try:
+        message=json.loads(line,object_pairs_hook=unique,
+                           parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+    except (ValueError,RecursionError):raise MCPError('Invalid or ambiguous MCP JSON.') from None
+    pending=[(message,0)];nodes=0
+    while pending:
+        value,depth=pending.pop();nodes+=1
+        if depth>32 or nodes>10000:raise MCPError('MCP JSON structure exceeds depth/node bounds.')
+        if isinstance(value,dict):pending.extend((item,depth+1) for item in value.values())
+        elif isinstance(value,list):pending.extend((item,depth+1) for item in value)
+    return message
+
+
 class MCPConnection:
     def __init__(self,snapshot,credentials,redactor,cancel_event=None):
         self.process=None; self.closed=False; self.sequence=0; self.staged=None
@@ -190,9 +211,7 @@ class MCPConnection:
                     while b'\n' in self.buffer:
                         line,rest=self.buffer.split(b'\n',1); self.buffer=bytearray(rest); frames+=1
                         if frames>128: raise MCPError('MCP message limit exceeded.')
-                        try:
-                            message=json.loads(line,parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
-                        except (ValueError,RecursionError): raise MCPError('Invalid MCP JSON.') from None
+                        message=decode_frame(line)
                         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0': raise MCPError('Invalid MCP JSON-RPC envelope.')
                         if 'method' in message:
                             if not isinstance(message['method'],str): raise MCPError('Invalid MCP method.')
@@ -218,6 +237,8 @@ class MCPConnection:
                             raise MCPRemoteError(error['code'],self.clean(error['message']))
                         if self.protocol==VERSION and (not isinstance(message['result'],dict) or message['result'].get('resultType','complete')!='complete'):
                             raise MCPError('Unsupported MCP result type; no input, sampling, or automatic retry performed.')
+                        if isinstance(message['result'],dict) and '_meta' in message['result'] and not isinstance(message['result']['_meta'],dict):
+                            raise MCPError('Invalid MCP result metadata; expected an object.')
                         # A server request may precede this result in the same
                         # read. Flush its unsupported-capability response before
                         # returning, rather than silently dropping that reply.

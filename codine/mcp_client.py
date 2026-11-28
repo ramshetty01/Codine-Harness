@@ -153,9 +153,9 @@ def command(argument,agent,workspace,ui):
             result={'name':name,'status':'revoked'}
         elif action=='connect':
             # A previous turn's cancelled inbox is not this explicit idle action.
-            event=getattr(workspace,'cancel_event',None)
-            if event is not None: event.clear()
-            result=manager.connect(name)
+            from .extension_commands import idle_execution
+            with idle_execution(workspace,True):
+                result=manager.connect(name)
         else: result=manager.disconnect(name)
     else: raise MCPError('Usage: /mcp list|tools|trust NAME|revoke NAME|connect NAME|disconnect NAME')
     ui.write(safe_text(scrub(json.dumps(result,indent=2),agent.redactor)))

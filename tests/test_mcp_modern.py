@@ -160,3 +160,48 @@ class ModernMCPTests(unittest.TestCase):
         self.connect()
         self.assertEqual(self.call('compatible')['untrusted_server_result']['content'][0]['text'],'compatible')
         self.assertEqual(self.manager.list()[0]['protocol'],'2026-07-28')
+
+    def test_duplicate_error_code_never_selects_legacy_or_restarts(self):
+        self.script.write_text(r'''import sys,json
+from pathlib import Path
+with Path('launch-count').open('a') as log:log.write('1')
+for line in sys.stdin:
+ msg=json.loads(line)
+ with Path('methods').open('a') as log:log.write(msg['method']+'\n')
+ print('{"jsonrpc":"2.0","id":'+str(msg['id'])+',"error":{"code":-32022,"code":-32601,"message":"ambiguous"}}',flush=True)
+''')
+        self.trust()
+        with self.assertRaisesRegex(MCPError,'ambiguous'):self.manager.connect('local')
+        self.assertEqual((self.project/'launch-count').read_text(),'1')
+        self.assertEqual((self.project/'methods').read_text().splitlines(),['server/discover'])
+        self.assertEqual(self.registry.tools,{})
+
+    def test_malformed_result_metadata_and_deep_payload_retire_connection(self):
+        from codine.mcp_transport import decode_frame
+        for metadata in ("[]", "'wrong'", "None"):
+            self.script.write_text(MODERN.replace("'supportedVersions':['2026-07-28']", "'_meta':"+metadata+",'supportedVersions':['2026-07-28']"))
+            self.trust()
+            with self.assertRaisesRegex(MCPError,'metadata'):self.manager.connect('local')
+            self.assertEqual(self.registry.tools,{})
+        with self.assertRaisesRegex(MCPError,'bounds'):
+            decode_frame(b'{"value":'+b'['*40+b'0'+b']'*40+b'}')
+        with self.assertRaisesRegex(MCPError,'bounds'):
+            decode_frame(json.dumps({'value':[0]*10001}).encode())
+        self.script.write_text(MODERN.replace("'content':[{'type':'text','text':text}]", "'_meta':[], 'content':[{'type':'text','text':text}]"))
+        self.connect()
+        result=self.call('once')
+        self.assertIn('error',result)
+        self.assertTrue(self.manager.loaded['local']['connection'].closed)
+        self.assertEqual(len([row for row in self.wire() if row['method']=='tools/call']),1)
+
+    def test_idle_connect_restores_previous_turn_cancellation_scope(self):
+        from codine.mcp_client import command
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        stale=threading.Event();stale.set();self.workspace.cancel_event=stale
+        self.trust()
+        agent=SimpleNamespace(_in_turn=False,mcp_manager=self.manager,redactor=self.redactor)
+        command('connect local',agent,self.workspace,SimpleNamespace(write=Mock()))
+        self.assertIs(self.workspace.cancel_event,stale);self.assertTrue(stale.is_set())
+        self.assertFalse(self.manager.loaded['local']['connection'].cancel_event.is_set())
+        with self.assertRaises(KeyboardInterrupt):self.call('cancelled active turn')
