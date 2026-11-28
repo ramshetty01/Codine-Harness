@@ -38,7 +38,8 @@ class Workspace:
         self.track_changes = track_changes
         from .paths import STATE_ROOT
         from .capabilities import USER_CAPABILITIES
-        self.protected_roots = {STATE_ROOT.resolve()}
+        from .prompt_templates import USER_TEMPLATES
+        self.protected_roots = {STATE_ROOT.resolve(), USER_TEMPLATES.resolve()}
         from .input_settings import INPUT_PATH, HISTORY_PATH
         self.protected_paths = {USER_CAPABILITIES.resolve(), INPUT_PATH.resolve(), HISTORY_PATH.resolve(),
                                 HISTORY_PATH.with_name(HISTORY_PATH.name + '.lock').resolve()}

@@ -19,6 +19,7 @@ COMMANDS = {
     '/queue': 'Inspect queued steering and follow-ups', '/steer': 'Redirect at a safe boundary',
     '/drop': 'Remove a queued item', '/next': 'Run the next queued item', '/stop': 'Cancel the busy turn',
     '/checks': 'Discover configured tests, lint and type checks', '/git': 'Inspect Git changes and diffs',
+    '/templates': 'List reusable prompt templates', '/template': 'Preview template into an unsent draft',
     '/editor': 'Open draft in configured external editor',
     '/export': 'Review and export a redacted transcript', '/import': 'Review and import historical conversation',
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
