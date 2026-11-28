@@ -37,6 +37,7 @@ HELP = '''Commands
   /instructions [PATH]  Inspect global/root and scoped file guidance
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
+  /trust                Review, allow, list or revoke executable extension snapshots
   /templates            List permitted reusable prompt templates
   /template NAME JSON   Preview literal expansion into an unsent draft
   /editor               Edit an unsent draft in your configured external editor
@@ -200,6 +201,9 @@ def command(text, agent, workspace, ui):
             ui.write('Undone ' + result['path'])
         else:
             ui.write(result.get('message', result['status'].capitalize()))
+    elif name == '/trust':
+        from .extension_trust import command as trust_command
+        trust_command(argument, agent, workspace, ui)
     elif name in ('/templates', '/template'):
         from .prompt_templates import command as template_command
         template_command(name[1:], argument, agent, workspace, ui)
