@@ -57,6 +57,8 @@ HELP = '''Commands
   /model cached|refresh [free]  Explicit cached selection or live catalog refresh
   /tools [PAGE]         Browse tool groups; expand/collapse GROUP
   /details [GROUP.N]    Page a recorded tool result; next/prev or OFFSET
+  /changeset [ID]       Review turn-level file changes
+  /rewind ID            Preflight and recover a whole file-tool changeset
   /changes              List recent file-tool checkpoints
   /diff [ID]            Compare checkpoint with the current file
   /undo [ID]            Preview and restore one file-tool change
@@ -164,6 +166,12 @@ def command(text, agent, workspace, ui):
                 ledger.settle(amount)
                 agent.save()
             ui.write(ledger.summary())
+    elif name in ('/changeset', '/rewind'):
+        from .changesets import show, rewind
+        if name == '/changeset':
+            ui.write(show(workspace, argument or None))
+        else:
+            ui.write(json.dumps(rewind(workspace, argument), indent=2))
     elif name == '/changes':
         from .changes import ChangeStore
         records = ChangeStore(workspace.root).list()
@@ -462,6 +470,7 @@ def main(argv=None):
         register_artifact_tool(agent.registry, agent.artifact_store)
         from .git_awareness import GitInspector, GitError, register_git_tools
         workspace.change_session_id = session.id
+        agent.on_turn_start = lambda ident: setattr(workspace, 'change_group_id', ident)
         agent.git_inspector = GitInspector(workspace, lambda: agent.session, agent.save)
         register_git_tools(agent.registry, agent.git_inspector)
         try:

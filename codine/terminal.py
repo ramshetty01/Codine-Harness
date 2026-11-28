@@ -22,6 +22,7 @@ COMMANDS = {
     '/plan': 'Inspect and plan without mutations', '/instructions': 'View project guidance',
     '/usage': 'Reported input/output/cache/reasoning usage',
     '/budget': 'View or reconcile request costs',
+    '/changeset': 'Review related turn-level edits', '/rewind': 'Recover a whole file-tool changeset',
     '/changes': 'List file-tool checkpoints', '/diff': 'Review a checkpoint against the current file', '/undo': 'Review and undo a file-tool change',
     '/artifact': 'Read saved tool output', '/rename': 'Rename a session',
     '/jobs': 'Inspect background jobs', '/cancel': 'Cancel a background job',
@@ -41,6 +42,7 @@ COMMANDS = {
 TOOL_LABELS = {
     'list_files': 'Explore project', 'read_file': 'Read file', 'search': 'Find in project',
     'inspect_file': 'Inspect file metadata', 'move_file': 'Move file', 'rename_file': 'Rename file', 'delete_file': 'Delete file',
+    'apply_changeset': 'Apply related file edits',
     'write_file': 'Create file', 'edit_file': 'Edit file', 'replace_lines': 'Replace lines', 'check_python': 'Check Python',
     'start_job': 'Start background job', 'job_status': 'Inspect job', 'cancel_job': 'Cancel job',
     'run_command': 'Run command', 'request_restart': 'Prepare restart',

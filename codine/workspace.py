@@ -198,6 +198,14 @@ class Workspace:
         self.resolve(target.relative_to(self.root).as_posix(), operation='write')
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
+        grouped = self.track_changes and record and not getattr(self, '_rewinding', False)
+        if grouped:
+            from . import changesets
+            from .file_lifecycle import snapshot
+            current = snapshot(self, target.relative_to(self.root).as_posix(), optional=True, authorize=False)
+            if (current['data'] if current else None) != original:
+                raise ValueError('File changed before checkpoint preparation.')
+            changesets.prepare(self, {target.relative_to(self.root).as_posix(): (current, {'data': data, 'mode': mode})})
         fd, temporary = tempfile.mkstemp(prefix=".codine-write-", dir=target.parent)
         try:
             with os.fdopen(fd, "wb") as handle:
@@ -219,12 +227,17 @@ class Workspace:
                     raise ValueError('File appeared while saving checkpoint.')
                 if original is not None and (target.stat().st_nlink != 1 or target.read_bytes() != original):
                     raise ValueError('File changed while saving checkpoint.')
+            if grouped:
+                info = os.stat(temporary, follow_symlinks=False)
+                changesets.own(self, target.relative_to(self.root).as_posix(), [info.st_dev, info.st_ino])
             os.replace(temporary, target)
             descriptor = os.open(target.parent, os.O_RDONLY)
             try:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
+            if grouped:
+                changesets.complete(self)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
@@ -309,6 +322,10 @@ class Workspace:
         self.read_ranges[path] = [(start, start + len(new_text))]
         return {'status': 'updated', 'path': path}
 
+    def apply_changeset(self, changes):
+        from .changesets import apply
+        return apply(self, changes)
+
     def inspect_file(self, path):
         from .file_lifecycle import inspect_file
         return inspect_file(self, path)
@@ -350,7 +367,9 @@ class Workspace:
             raise ValueError('This change was already undone.')
         if record.get('kind') == 'lifecycle':
             from .file_lifecycle import undo
-            return undo(self, store, record)
+            result = undo(self, store, record)
+            if result['status'] == 'undone': self.change_group_id = None
+            return result
         target = self.resolve(record['path'], operation='write')
         data, current = self._read(target)
         if target.stat().st_nlink != 1 or fingerprint(data) != record['after_hash']:
@@ -371,6 +390,7 @@ class Workspace:
             self._atomic_write(target, before.encode('utf-8'), data, record=False)
         record['undone'] = True
         store.save(record)
+        self.change_group_id = None
         self.read_versions.clear()
         self.read_ranges.clear()
         return {'status': 'undone', 'path': record['path'], 'change': record['id']}

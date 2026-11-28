@@ -112,6 +112,8 @@ class Agent:
         self._started_plan_revision = self.session.plan_revision
         self.session.last_run = run_record(self.session, 'running', self._started_plan_revision)
         try:
+            if getattr(self, 'on_turn_start', None):
+                self.on_turn_start(self.session.last_run['id'])
             return self.finish(self._run_turn(text, queued_item=queued_item) if queued_item else self._run_turn(text))
         except BaseException as error:
             if isinstance(error, PersistenceError): reason = 'persistence_error'

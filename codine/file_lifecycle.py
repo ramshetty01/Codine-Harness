@@ -141,6 +141,8 @@ def create_exclusive(workspace, path, data, mode, store, record, identity_key):
         try:
             record[identity_key] = [initial.st_dev, initial.st_ino]
             store.save(record)  # Ownership is durable before any copy bytes are written.
+            from .changesets import own
+            own(workspace, path, record[identity_key])
             view = memoryview(data)
             while view:
                 written = os.write(descriptor, view)
@@ -181,6 +183,13 @@ def operate(workspace, path, expected_sha256, destination=None):
     if destination is not None: unchanged(workspace, destination, None)
     from .changes import ChangeStore
     store = ChangeStore(workspace.root)
+    from . import changesets
+    grouped = workspace.track_changes and not getattr(workspace, '_rewinding', False)
+    if grouped:
+        targets = {path: (current, None)}
+        if destination:
+            targets[destination] = (None, {'data': current['data'], 'mode': current['mode']})
+        changesets.prepare(workspace, targets, partial=True)
     record = store.prepare_lifecycle(operation, path, current['data'], current['mode'], destination,
                                      session_id=getattr(workspace, 'change_session_id', None))
     workspace.emit(f"Recovery checkpoint: {record['id']} (use /diff or /undo with this ID).")
@@ -196,6 +205,7 @@ def operate(workspace, path, expected_sha256, destination=None):
     remove_guarded(workspace, path, current)
     record['phase'] = 'completed'
     store.save(record)
+    if grouped: changesets.complete(workspace)
     workspace.read_versions.pop(path, None)
     workspace.read_ranges.pop(path, None)
     getattr(workspace, 'lifecycle_versions', {}).pop(path, None)
