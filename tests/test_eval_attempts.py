@@ -97,10 +97,20 @@ class AttemptTests(unittest.TestCase):
                 return {'task':task['id'],'passed':task['id']=='a','seconds':1,'requests':1,'tool_failures':0,'error':'' if task['id']=='a' else 'provider failure','interventions':0}
             path=root/'live-fake.json'
             with patch('codine.live_evals.Config.load',return_value=cfg),patch('codine.live_evals.metadata',return_value=catalog),patch('codine.live_evals.eval_resource',return_value=pack),patch('codine.live_evals.DockerSandbox',return_value=SimpleNamespace(image='sha256:'+'a'*64,timeout=5,output_limit=65536)),patch('codine.live_evals.EvaluationBudget',return_value=shared),patch('codine.live_evals.evaluate_task',side_effect=evaluate),patch('codine.capabilities.declarations',return_value={}),patch('codine.capabilities.cached_record',return_value=None),redirect_stdout(io.StringIO()):
-                self.assertEqual(main(['--model','fake-model','--report',str(path)]),1)
+                self.assertEqual(main(['--model','fake-model','--run-budget','0.15','--report',str(path)]),1)
             saved=json.loads(path.read_text())
+            self.assertEqual(saved['run_limit_usd'],'0.15')
+            self.assertEqual(saved['provenance']['configuration']['values']['budget_usd'],'0.15')
             self.assertEqual(saved['metrics']['known_cost_usd'],'0.01')
             self.assertFalse(saved['metrics']['cost_complete']);self.assertIsNone(saved['cost_per_solved_usd'])
             self.assertEqual(saved['provenance']['controls']['values']['request_settings']['max_tokens'],2048)
             self.assertEqual(observed,[{'declarations':{},'record':None}]*2)
             self.assertNotIn('fake-only-key',path.read_text());shared.close.assert_called_once()
+
+    def test_changed_budget_cannot_be_treated_as_same_condition(self):
+        changed=report();manifest=changed['provenance']
+        manifest['configuration']['values']['budget_usd']='0.75'
+        manifest['configuration']['sha256']=fingerprint(manifest['configuration']['values'])
+        manifest['sha256']=fingerprint({k:manifest[k] for k in ('source','tasks','configuration','runtime','controls')})
+        with self.assertRaisesRegex(ValueError,'must match'):
+            compare_reports([report(),report()],[report(),changed])
