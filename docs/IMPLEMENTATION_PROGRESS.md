@@ -322,3 +322,16 @@ No live inference was used. Four workstreams continue: MCP integration, versione
 package management, session forks, and root integration/acceptance. Optional
 product milestones and live model-quality evaluation remain separate unfinished
 scope; this checkpoint does not claim full Pi/Claude Code parity.
+
+## M5 acceptance completed
+
+Final follow-up `295847c` gives explicit idle extension commands a fresh cancellation
+scope while preserving active-turn cancellation. Its 43 targeted checks passed.
+Hosted run [46094696196](https://github.com/ramshetty01/Codine-Harness/actions/runs/46094696196)
+passed all nine jobs; the supported-platform suite discovered 661 tests and the
+installed wheel exercised real local extension load/invoke/reload/cleanup.
+All ten M5 issues are closed and the project-customization milestone is closed
+against [MILESTONE5_ACCEPTANCE.md](MILESTONE5_ACCEPTANCE.md). There are now **59 closed
+issues out of 91**, and **three closed milestones out of eight**. M3 remains open
+for the combined long-task acceptance gate, not because its implementation issues
+are still open. Remaining work continues in separate isolated branches.
