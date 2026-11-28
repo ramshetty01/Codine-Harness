@@ -5,7 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
-from test_terminal_integration import PTY
+from tests.test_terminal_integration import PTY
 from codine.config import APP_ROOT
 from codine.sessions import validate_messages
 
