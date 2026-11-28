@@ -44,6 +44,8 @@ class ExtensionManagerTests(unittest.TestCase):
     def test_model_tool_approval_and_plan_mode(self):
         self.fixture(); row = self.manager.load('manifest.json')
         name = row['tools'][0]
+        self.registry.request_load(name,self.registry.catalog(name)['tools'][0]['version'])
+        self.registry.activate_pending()
         call = {'function':{'name':name,'arguments':'{"text":"hello"}'}}
         self.ws.mode = 'auto-edit'; self.approve.return_value=False
         self.assertEqual(json.loads(self.registry.execute(call)), {'status':'declined'})
@@ -57,6 +59,25 @@ class ExtensionManagerTests(unittest.TestCase):
                        lambda:self.manager.panel('example:status')):
             with self.assertRaisesRegex(ValueError,'plan mode'):action()
         self.manager.unload('example')
+
+    def test_reload_identical_schema_requires_fresh_discovery_activation(self):
+        self.fixture();row=self.manager.load('manifest.json');name=row['tools'][0]
+        first=self.registry.catalog(name)['tools'][0]
+        self.registry.request_load(name,first['version']);self.registry.activate_pending()
+        self.assertEqual(len(self.registry.schemas()),1)
+        self.manager.reload('example')
+        self.assertEqual(self.registry.schemas(),[])
+        with self.assertRaises(ValueError):self.registry.request_load(name,first['version'])
+        result=json.loads(self.registry.execute({'function':{'name':name,'arguments':'{"text":"no"}'}}))
+        self.assertIn('not loaded',result['error'])
+        self.approve.assert_not_called()
+        current=self.registry.catalog(name)['tools'][0]
+        self.registry.request_load(name,current['version']);self.registry.activate_pending()
+        self.assertEqual(len(self.registry.schemas()),1)
+        snapshot=self.manager.loaded['example']['snapshot']
+        self.trust.revoke(snapshot['digest'])
+        self.assertEqual(self.registry.schemas(),[])
+        self.assertEqual(self.registry.catalog(name)['tools'],[])
 
     def test_untrusted_top_level_never_executes_and_revoke_blocks(self):
         source="from pathlib import Path\nPath('ran').write_text('bad')\n"+SOURCE
@@ -84,6 +105,9 @@ class ExtensionManagerTests(unittest.TestCase):
     def test_model_argument_names_cannot_override_dispatch_closure(self):
         source=SOURCE.replace("'text':{'type':'string'}", "'_name':{'type':'string'},'_local':{'type':'string'}").replace("'required':['text']", "'required':[]")
         self.fixture(source); row=self.manager.load('manifest.json')
+        name=row['tools'][0]
+        self.registry.request_load(name,self.registry.catalog(name)['tools'][0]['version'])
+        self.registry.activate_pending()
         result=self.registry.execute({'function':{'name':row['tools'][0],
             'arguments':'{"_name":"another", "_local":"other"}'}})
         self.assertEqual(json.loads(result),{'_name':'another','_local':'other'})

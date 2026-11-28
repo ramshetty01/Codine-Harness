@@ -64,11 +64,13 @@ class ExtensionManager:
             old_names = set(old['tools']) if old else set()
             prefix = 'ext_' + re.sub('[^a-z0-9_]', '_', name.lower())[:20] + '_' + hashlib.sha256(name.encode()).hexdigest()[:8] + '_'
             specs = {}
+            availability = lambda: self._available(name)
             for row in descriptors['tools']:
                 full = prefix + row['name']
                 if full in self.registry.tools and full not in old_names:
                     raise ValueError('Extension tool name collides with an existing registration.')
-                specs[full] = ToolSpec(full, safe_text(row['description']), row['parameters'], self._tool_handler(name, row['name']), effect='execute')
+                specs[full] = ToolSpec(full, safe_text(row['description']), row['parameters'], self._tool_handler(name, row['name']), effect='execute', deferred=True,
+                                       availability=availability)
             if sum(len(item['tools']) for key, item in self.loaded.items() if key != name) + len(specs) > 64:
                 raise ValueError('At most 64 extension tools may be registered.')
             self._cancel()
@@ -84,6 +86,10 @@ class ExtensionManager:
             raise
         if old: old['worker'].close()
         return self._row(name)
+
+    def _available(self, name):
+        entry = self.loaded.get(name)
+        return bool(entry and not entry['worker'].closed and self.trust_store.trusted(entry['snapshot']))
 
     def _tool_handler(self, name, local):
         def invoke(**args):

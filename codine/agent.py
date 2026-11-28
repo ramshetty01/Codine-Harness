@@ -124,6 +124,7 @@ class Agent:
                 self.on_turn_start(self.session.last_run['id'])
             return self.finish(self._run_turn(text, queued_item=queued_item) if queued_item else self._run_turn(text))
         except BaseException as error:
+            getattr(self.registry, 'cancel_pending', lambda: None)()
             if isinstance(error, PersistenceError): reason = 'persistence_error'
             elif isinstance(error, BudgetError): reason = 'budget_blocked'
             elif isinstance(error, ContextLimitError): reason = 'context_limit'
@@ -378,6 +379,8 @@ class Agent:
                             loop_detected = True
                 self.session.repair_pending()
                 self.save()  # Commit complete assistant/tool group.
+                for notice in getattr(self.registry, 'activate_pending', lambda: [])():
+                    self.emit('status', notice)
                 self.apply_steering()
             except KeyboardInterrupt:
                 raise

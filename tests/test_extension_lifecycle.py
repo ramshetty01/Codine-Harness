@@ -55,6 +55,9 @@ class ExtensionLifecycleTests(unittest.TestCase):
 
     def invoke_tool(self):
         name=self.manager.list()[0]['tools'][0]
+        rows=self.registry.catalog(name)['tools']
+        if rows and not rows[0]['active']:
+            self.registry.request_load(name,rows[0]['version']);self.registry.activate_pending()
         return json.loads(self.registry.execute({'function':{'name':name,'arguments':'{"text":"sample"}'}}))
 
     def test_real_load_failed_reload_retrust_reload_and_unload(self):

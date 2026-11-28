@@ -83,6 +83,9 @@ class MCPTests(unittest.TestCase):
 
     def call(self,text):
         name=next(iter(self.registry.tools))
+        rows=self.registry.catalog(name)['tools']
+        if rows and not rows[0]['active']:
+            self.registry.request_load(name,rows[0]['version']);self.registry.activate_pending()
         return json.loads(self.registry.execute({'function':{'name':name,'arguments':json.dumps({'text':text})}}))
 
     def test_handshake_discovery_approval_credential_redaction_and_no_sampling(self):

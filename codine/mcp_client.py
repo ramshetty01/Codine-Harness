@@ -61,6 +61,7 @@ class MCPManager:
         connection=MCPConnection(snapshot,credentials,redactor,getattr(self.workspace,'cancel_event',None))
         try:
             specs={}; cursor=None; seen_cursors=set(); toolnames=set()
+            availability=lambda:self._available(name)
             for _ in range(4):
                 result=connection.request('tools/list',{'cursor':cursor} if cursor else {})
                 if not isinstance(result,dict) or not isinstance(result.get('tools'),list): raise MCPError('Invalid MCP tool discovery.')
@@ -75,7 +76,8 @@ class MCPManager:
                     full='mcp_'+name[:20]+'_'+hashlib.sha256((name+':'+tool['name']).encode()).hexdigest()[:16]
                     if full in self.registry.tools or full in specs: raise MCPError('MCP tool namespace collision.')
                     specs[full]=ToolSpec(full,safe_text(tool.get('description') or 'MCP tool '+tool['name']),input_schema,
-                                         self.handler(name,tool['name']),effect='execute')
+                                         self.handler(name,tool['name']),effect='execute',deferred=True,
+                                         availability=availability)
                 cursor=result.get('nextCursor')
                 if cursor is None: break
                 if not isinstance(cursor,str) or len(cursor)>1024 or cursor in seen_cursors: raise MCPError('Invalid MCP pagination cursor.')
@@ -89,6 +91,11 @@ class MCPManager:
             return {'name':name,'status':'connected','protocol':connection.protocol,'tools':list(specs)}
         except BaseException:
             connection.close(); raise
+
+    def _available(self,name):
+        entry=self.loaded.get(name)
+        return bool(entry and not entry['connection'].closed and not entry['connection'].tools_changed
+                    and self.settings.trusted(entry['snapshot']))
 
     def handler(self,name,tool):
         def invoke(**arguments):

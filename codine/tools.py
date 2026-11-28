@@ -301,4 +301,6 @@ def build_registry(workspace, request_restart):
     register_symbol_tool(registry, workspace)
     from .skills import register_skill_tools
     register_skill_tools(registry, workspace)
+    from .deferred_tools import register_discovery_tools
+    register_discovery_tools(registry)
     return registry
