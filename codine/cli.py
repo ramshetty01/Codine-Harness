@@ -54,6 +54,7 @@ HELP = '''Commands
   /rename TITLE         Name the current session
   /checks [DIR]         Discover configured repository checks; /checks results
   /git [diff|staged PATH] Inspect Git status or a file diff
+  /rewind-context [TURN] Preview a historical conversation child; files unchanged
   /fork [TITLE]         Branch complete history at this tip; inherit active context
   /tree [ID]            Inspect bounded conversation ancestry / resume a node
   /resume ID, /new      Resume saved history / start a new session
@@ -293,8 +294,13 @@ def command(text, agent, workspace, ui):
         if argument:
             return command('/resume ' + argument, agent, workspace, ui)
         ui.write(format_tree(tree(agent.store, session.id)))
-    elif name in ('/resume', '/new', '/fork'):
-        if name == '/fork':
+    elif name in ('/resume', '/new', '/fork', '/rewind-context'):
+        if name == '/rewind-context':
+            from .conversation_rewind import rewind as rewind_conversation
+            replacement = rewind_conversation(argument, agent, workspace, ui)
+            if replacement is None:
+                return
+        elif name == '/fork':
             from .session_forks import fork
             replacement = fork(agent, workspace, argument)
         else:
@@ -332,11 +338,13 @@ def command(text, agent, workspace, ui):
         if hasattr(agent, "git_inspector"):
             from .git_awareness import GitError
             try:
-                agent.git_inspector.capture("session_start" if name in ("/new", "/fork") else "first_inspection")
+                agent.git_inspector.capture("session_start" if name in ("/new", "/fork", "/rewind-context") else "first_inspection")
             except GitError as error:
                 ui.write(str(error))
         agent.restart_requested = False
         ui.write('Active session: ' + replacement.id)
+        if name == '/rewind-context':
+            ui.write('Conversation rewound into a new child; files unchanged, current spending retained, no tools replayed.')
         if name == '/fork':
             ui.write('Forked complete tip history; active context and settled accounting inherited. Files and project memory remain shared. No tools replayed.')
     elif name == '/clear':

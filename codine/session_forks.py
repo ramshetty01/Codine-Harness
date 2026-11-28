@@ -129,7 +129,7 @@ def require_idle(agent, workspace):
     validate_branch(session.branch, session)
 
 
-def fork(agent, workspace, title=''):
+def fork(agent, workspace, title='', *, end=None, expected_state=None):
     validate_title(title)
     from .inbox import Inbox
     inbox = getattr(agent, 'inbox', None)
@@ -139,8 +139,18 @@ def fork(agent, workspace, title=''):
     with inbox.lock:
         require_idle(agent, workspace)
         with settled_shared_budget(agent):
+            if expected_state is not None:
+                from .conversation_rewind import state_hash
+                if state_hash(agent.session, agent.redactor) != expected_state:
+                    raise ValueError('Conversation state changed during preview; review again.')
             agent.save()
             parent = agent.store._read_session(agent.session.id, repair_pending=False)
+            if expected_state is not None and state_hash(parent, agent.redactor) != expected_state:
+                raise ValueError('Saved conversation state changed; review again.')
+            if end is not None:
+                from .conversation_rewind import completed_turns
+                if expected_state is None or type(end) is not int or end not in [row['end'] for row in completed_turns(parent.messages)]:
+                    raise ValueError('Historical fork needs a reviewed complete user-turn boundary.')
             depth = parent.branch.get('depth', 0) + 1
             if depth > MAX_DEPTH:
                 raise ValueError('Fork tree depth limit reached (32).')
@@ -148,9 +158,17 @@ def fork(agent, workspace, title=''):
             fresh = Session.create(workspace.root, parent.model, parent.messages[0]['content'], provider=parent.provider)
             child.id, child.created, child.updated = fresh.id, fresh.created, fresh.updated
             child.title = title or (('Fork: ' + parent.title)[:120] if parent.title else 'Fork of ' + parent.id)
+            if end is not None:
+                child.messages = copy.deepcopy(parent.messages[:end])
+                child.context_start = 1
+                child.context_summary = {}
+                child.summary_end = 1
+                child.summary_user = None
+                child.plan = []
+                child.plan_revision = parent.plan_revision + 1
             child.branch = {'version': 1, 'project': parent.project, 'parent': parent.id,
                 'root': parent.branch.get('root', parent.id), 'depth': depth,
-                'messages': len(parent.messages), 'history_sha256': history_hash(parent.messages)}
+                'messages': len(child.messages), 'history_sha256': history_hash(child.messages)}
             child.pending = None
             child.last_run = {}
             child.git_baseline = {}
