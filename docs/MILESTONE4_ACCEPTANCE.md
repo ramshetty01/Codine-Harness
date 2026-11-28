@@ -52,3 +52,8 @@ journaled and recoverable; it is not a filesystem-wide atomic transaction.
 Snapshots remain historical data, and an approval does not authorize replay of
 an unknown outcome. Live model evaluation remains a separate budget-controlled
 step.
+
+## Integrated acceptance result
+
+Checkpoint `2ed552e` passed 525 tests with Docker enabled and zero skips.
+[Hosted run 46091019842](https://github.com/ramshetty01/Codine-Harness/actions/runs/46091019842) passed all nine supported-platform/Docker jobs. A fresh installed wheel passed 12/12 offline exercises, startup, resource/session and restart checks with network access blocked. No inference calls were made and the real OpenRouter allowance remained unchanged. This gate verifies harness behavior, not live-model solve rate.

@@ -63,7 +63,7 @@ the supported-platform matrix.
 | M1 Representative tasks | Multi-language/multi-repository breadth, annotated incorrect edits/interventions, repeated controlled live comparisons |
 | M2 Sandboxed execution | Gate passed: 121 checks with zero skips, real build/smoke, and five repository fixtures; see MILESTONE2_ACCEPTANCE.md |
 | M3 Long-task reliability | Live long-task/summary-quality acceptance and inference retries only with verified billing/replay safety |
-| M4 Daily terminal workflow | Related change sets, file attachments, richer rendering/history, full usage visibility, symbol/document workflows |
+| M4 Daily terminal workflow | Gate passed: 525 Docker-enabled tests, hosted matrix and real-PTY workflow; see MILESTONE4_ACCEPTANCE.md |
 | M5 Customization | Hierarchical trusted configuration, skills/templates, reviewed memory and extension lifecycle |
 | M6 Integrations | MCP, SDK/RPC, deferred discovery, provider/auth integration and measured caching/fallback |
 | M7 Parallel work | Agent-side workers, isolated edits, shared supervision/budgets, task dependencies and session branching |
@@ -228,3 +228,35 @@ race during ownership journaling; `02298cb` rechecks after journal persistence a
 preserves a conflicting external edit. This remains a non-atomic multi-file
 operation, not a transaction or a shell/Git rollback. See [CHANGESETS.md](CHANGESETS.md).
 The follow-up review has its own targeted tests and hosted validation.
+
+## Daily terminal workflow integration
+
+U4 adds private searchable prompt history, configurable keys and a trusted
+external editor that returns an unsent draft. Projects containing the user input
+settings fall back to default input. U5 separates permission/executor, phase and
+queue state, cached context estimates and local spending in the footer; `/status`
+shows unclipped details without network or shared-ledger work.
+
+R7 adds bounded isolated Python AST navigation, lexical reference candidates and
+syntax diagnostics, with explicitly nonsemantic text fallback for other languages.
+R8 adds notebook cell inspection and guarded source replacement without executing
+kernels or rendering rich outputs. Notebook source coverage is separate from raw
+file permissions and is revoked on session switches and recovery. Edited code
+cells lose stale outputs/counts; unrelated JSON values are preserved.
+
+See [INPUT_CUSTOMIZATION.md](INPUT_CUSTOMIZATION.md),
+[TERMINAL_STATUS.md](TERMINAL_STATUS.md), [SYMBOL_NAVIGATION.md](SYMBOL_NAVIGATION.md),
+[NOTEBOOKS.md](NOTEBOOKS.md), and the integrated
+[MILESTONE4_ACCEPTANCE.md](MILESTONE4_ACCEPTANCE.md) gate. The gate exercises actual
+PTY input, grouped approvals, tool/diff inspection, session switching/resume
+without replay, and exact multi-file recovery, alongside steering/cancellation
+checks. An initial full run exposed a stale planning-mode test allowlist; the new
+read-only notebook tool is now included, while notebook mutation stays disallowed.
+
+Final integration at `2ed552e` passed **525 Docker-enabled tests with zero skips**.
+The installed wheel passed 12/12 offline exercises and startup/resource/session/
+restart checks with networking blocked. Hosted run
+[46091019842](https://github.com/ramshetty01/Codine-Harness/actions/runs/46091019842)
+provides the final supported-platform gate. No inference calls were made; shared
+spending remains unchanged. The M4 acceptance tests verify harness behavior with
+scripted provider responses, not real-model coding quality or parity with Pi.
