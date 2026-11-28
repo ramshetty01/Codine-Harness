@@ -486,15 +486,19 @@ def main(argv=None):
                 if inbox.failure:
                     inbox.check_cancel()
                 inbox.cancel.clear()
-                with busy_input(ui, inbox):
-                    outcome = agent.run_turn(text, queued_item=queued_item)
-                    # Follow-ups only auto-start after clean, persisted model completion.
-                    while (outcome == 'completed' and not inbox.cancel.is_set() and
-                           not getattr(ui, 'has_submitted_commands', lambda: False)()):
-                        items = inbox.ready('steer') or inbox.ready('followup')
-                        if not items:
-                            break
-                        outcome = agent.run_turn(items[0]['text'], queued_item=items[0])
+                while True:
+                    with busy_input(ui, inbox):
+                        outcome = agent.run_turn(text, queued_item=queued_item)
+                    # Joining the reader seals the boundary: it may have accepted
+                    # a follow-up while the completed turn was shutting down.
+                    if (outcome != 'completed' or inbox.cancel.is_set() or
+                            getattr(ui, 'has_submitted_commands', lambda: False)()):
+                        break
+                    items = inbox.ready('steer') or inbox.ready('followup')
+                    if not items:
+                        break
+                    queued_item = items[0]
+                    text = queued_item['text']
                 if agent.restart_requested:
                     agent.restart_requested = False
                     restart_process(agent, plan=workspace.mode == 'plan')
