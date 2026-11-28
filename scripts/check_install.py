@@ -66,11 +66,38 @@ agent=SimpleNamespace(save=lambda:None, emit=lambda *args:None,
 restart_process(agent,execute=lambda program,argv:calls.append(argv))
 assert calls[0][1:3] == ['-m','codine']
 '''])
+        # Trusted local fixture exercises the installed worker's isolated import path.
+        run([python, '-c', """
+import json
+from pathlib import Path
+from codine.config import Redactor
+from codine.workspace import Workspace
+from codine.registry import ToolRegistry
+from codine.extension_trust import ExtensionTrustStore
+from codine.extension_manager import ExtensionManager
+root=Path.cwd().resolve()
+(root/'extension.py').write_text('def register(api):\\n    api.command("echo", "Echo input", lambda text:text)\\n    api.panel("status", lambda:"ready")\\n')
+(root/'manifest.json').write_text(json.dumps({'version':1,'name':'install',
+    'entrypoint':'extension.py','files':['extension.py'],'capabilities':['commands','ui']}))
+ws=Workspace(root,lambda _:True,lambda _:None)
+trust=ExtensionTrustStore(root.parent/'trust')
+snapshot=trust.review(ws,'manifest.json')
+trust.allow(ws,snapshot['digest'],lambda _:True)
+manager=ExtensionManager(ws,ToolRegistry(),trust,Redactor())
+try:
+    manager.load('manifest.json')
+    assert manager.invoke_command('install:echo','installed') == 'installed'
+    assert manager.panel('install:status') == 'ready'
+    manager.reload('install')
+finally:
+    manager.close()
+assert manager.list() == []
+"""])
         print(run([python, '-m', 'codine.evals', '--offline']).strip())
         report = json.loads((project / '.codine/evals/offline.json').read_text())
         assert report['passed'] == report['total'] == 12
         assert report['provenance']['source']['files']
-        print('Installed wheel: imports, resources, offline startup, session location, and restart passed; network blocked.')
+        print('Installed wheel: imports, resources, offline startup, session location, restart and local extension lifecycle passed; parent network blocked.')
 
 
 if __name__ == '__main__':
