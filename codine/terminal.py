@@ -5,6 +5,7 @@ import re
 import shutil
 import sys
 import time
+from queue import Queue, Empty, Full
 from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
@@ -102,6 +103,7 @@ class Terminal:
         self.tool_target = ''
         self.draft = ""
         self.busy_reader = None
+        self.submitted_commands = Queue(maxsize=16)
         self.editor = None
         if self.interactive:
             bindings = KeyBindings()
@@ -187,7 +189,25 @@ class Terminal:
             text += '  ·  ' + model
         return FormattedText([('class:muted', clip(self.clean(text), self.width))])
 
+    def submit_command(self, text):
+        if len(text) > 16000:
+            raise ValueError('Terminal command exceeds 16,000 characters.')
+        try:
+            self.submitted_commands.put_nowait(text)
+        except Full:
+            raise ValueError('Terminal command queue is full (16); wait for the prompt.') from None
+
+    def has_submitted_commands(self):
+        return not self.submitted_commands.empty()
+
     def prompt(self):
+        try:
+            submitted = self.submitted_commands.get_nowait()
+        except Empty:
+            pass
+        else:
+            self.line('› ' + submitted)
+            return submitted
         if not self.editor:
             raise EOFError()
         self.line()

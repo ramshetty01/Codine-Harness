@@ -478,7 +478,8 @@ def main(argv=None):
                 with busy_input(ui, inbox):
                     outcome = agent.run_turn(text, queued_item=queued_item)
                     # Follow-ups only auto-start after clean, persisted model completion.
-                    while outcome == 'completed' and not inbox.cancel.is_set():
+                    while (outcome == 'completed' and not inbox.cancel.is_set() and
+                           not getattr(ui, 'has_submitted_commands', lambda: False)()):
                         items = inbox.ready('steer') or inbox.ready('followup')
                         if not items:
                             break

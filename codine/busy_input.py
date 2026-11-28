@@ -56,8 +56,13 @@ class BusyInput:
             try:
                 text = self.ui.editor.prompt(FormattedText([('class:prompt', 'busy › ')]), default=self.draft)
                 self.draft = ''
-                if text.strip() and not queue_command(self.inbox, text, self.ui.write, busy=True):
-                    self.ui.write('While busy: text queues follow-up; /steer TEXT, /queue, /drop ID, /stop are available.')
+                if text.strip().lower() == 'exit':
+                    self.ui.submit_command(text)
+                    self.ui.write('Command queued for prompt · runs after this turn stops.')
+                elif text.strip() and not queue_command(self.inbox, text, self.ui.write, busy=True):
+                    # Main thread dispatches commands only after this reader joins.
+                    self.ui.submit_command(text)
+                    self.ui.write('Command queued for prompt · runs after this turn stops.')
             except PauseInput:
                 self.draft = self.ui.editor.default_buffer.text
                 return

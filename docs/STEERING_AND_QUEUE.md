@@ -13,7 +13,12 @@ The toolbar shows BUSY or STOPPING and the queue count.
   next urgent item first, otherwise the oldest follow-up.
 - While an approval is displayed, its input belongs exclusively to the approval
   reader. Decline or cancel it before entering new steering. Queued text never
-  grants approval. Other slash commands wait until the ordinary prompt.
+  grants approval. Other slash commands (including `/jobs`) submitted while busy
+  are retained in a separate, 16-command in-memory FIFO and dispatched by the main
+  thread after the busy reader stops. They take priority over starting another
+  follow-up; they never run on the input thread or become model messages. Commands
+  still use their ordinary approval rules. This FIFO is not replayed after a crash;
+  pending command text is limited to 16,000 characters per entry.
 
 ## Safe boundaries
 

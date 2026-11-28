@@ -110,3 +110,49 @@ raise SystemExit(cli.main(['--provider','nvidia','--project','.']))
                 self.assertEqual(len(json.loads(next((root/'.codine/sessions').glob('*.inbox')).read_text())), 1)
             finally:
                 terminal.close()
+
+    def test_command_submitted_after_final_text_is_handed_to_main_prompt(self):
+        # The provider remains blocked after displaying its answer: this forces
+        # the same busy-to-idle ordering that failed in all CI matrix jobs.
+        driver = '''
+import json, time, threading
+from codine.jobs import JobSupervisor
+original_status = JobSupervisor.status
+def checked_status(self, ident=None):
+    assert threading.current_thread() is threading.main_thread()
+    print("INSPECTED_JOBS_MAIN_THREAD", flush=True)
+    return original_status(self, ident)
+JobSupervisor.status = checked_status
+from pathlib import Path
+from codine import cli
+class Fake:
+    def __init__(self, config): self.root=config.project
+    def close(self): pass
+    def complete(self,messages,schemas,model,emit):
+        emit('text','FINAL_TEXT_READY')
+        while not (self.root/'release').exists(): time.sleep(.01)
+        return {'role':'assistant','content':'FINAL_TEXT_READY'},'stop',None
+cli.NvidiaProvider=Fake
+raise SystemExit(cli.main(['--provider','nvidia','--project','.']))
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            terminal = PTY([sys.executable, '-c', driver], root)
+            try:
+                terminal.until('›'.encode())
+                terminal.send(b'answer me\r')
+                terminal.until(b'FINAL_TEXT_READY')
+                terminal.send(b'/jobs\r')
+                terminal.until(b'Command queued for prompt')
+                # The inspection cannot run while the provider/main thread is held.
+                self.assertNotIn(b'INSPECTED_JOBS_MAIN_THREAD', terminal.output)
+                (root/'release').write_text('go')
+                terminal.until(b'INSPECTED_JOBS_MAIN_THREAD')
+                terminal.send(b'exit\r')
+                terminal.until(b'Goodbye!')
+                self.assertEqual(terminal.process.wait(timeout=5), 0)
+                session = json.loads(next((root/'.codine/sessions').glob('*.json')).read_text())
+                self.assertEqual(sum(row.get('content')=='answer me' for row in session['messages']),1)
+                self.assertNotIn('/jobs', json.dumps(session['messages']))
+            finally:
+                terminal.close()
