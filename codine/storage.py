@@ -40,6 +40,10 @@ class Storage:
         self.plans={}
 
     def idle(self):
+        from .supervisor import require_resolved
+        require_resolved(self.agent.session)
+        if getattr(self.agent, '_child_supervision_active', False):
+            raise ValueError('Storage retention requires released child supervision ownership.')
         if getattr(self.agent,'_in_turn',False) or self.agent.session.pending or self.agent.session.last_run.get('outcome')=='running':
             raise ValueError('Storage retention requires an idle session with no pending tool journal.')
         if getattr(self.agent,'inbox',None) and self.agent.inbox.list():
@@ -177,7 +181,7 @@ class Storage:
         candidate_sessions=set()
         for ident,row in sessions.items():
             value=row['value'];billing=value.get('billing',{})
-            if (ident!=self.agent.session.id and not value.get('pending') and value.get('last_run',{}).get('outcome')!='running'
+            if (ident!=self.agent.session.id and not value.get('delegation') and not value.get('pending') and value.get('last_run',{}).get('outcome')!='running'
                     and billing.get('pending') is None and not billing.get('blocked') and not billing.get('shared_request')
                     and row['path'] not in newest and row['stamp'][3]/1e9<=when-days*86400):
                 candidate_sessions.add(ident)

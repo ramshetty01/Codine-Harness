@@ -110,3 +110,5 @@ trash manifests, aggregate auxiliary-record limits, late references, modified pr
 permission failures, byte bounds, preserved fork ancestry, publication locks,
 and retained references. No cleanup runs against a real user repository and no
 model API is called.
+
+Sessions with supervision records (parents and archival children) are retained conservatively, including completed links. Active or unresolved supervision blocks cleanup; retention cannot remove the records needed to inspect or recover child ownership.

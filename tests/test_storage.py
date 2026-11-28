@@ -283,3 +283,20 @@ store.close()
                 finally:
                     child.communicate('',timeout=10)
                 self.assertEqual(child.returncode,0)
+
+    def test_supervised_history_and_unresolved_ownership_are_not_pruned(self):
+        parent,parent_path=self.other_session()
+        child,child_path=self.other_session()
+        run='a'*32
+        parent.delegation={'role':'parent','runs':[{'id':run,'child':child.id,
+            'status':'interrupted','started':1,'deadline':61}]}
+        child.delegation={'role':'child','parent':parent.id,'run':run}
+        for session,path in ((parent,parent_path),(child,child_path)):
+            store=SessionStore(self.root);store.save(session);store.close();self.old(path)
+        selected=self.storage.plan(30,1,16)['selected']
+        self.assertFalse(any(row['id'] in (parent.id,child.id) for row in selected))
+        self.agent._child_supervision_active=True
+        with self.assertRaisesRegex(ValueError,'supervision ownership'):self.storage.plan(30,1,16)
+        self.agent._child_supervision_active=False
+        self.session.delegation=parent.delegation
+        with self.assertRaisesRegex(ValueError,'unresolved'):self.storage.plan(30,1,16)
