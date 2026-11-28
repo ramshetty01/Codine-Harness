@@ -35,6 +35,10 @@ class Workspace:
         self.lifecycle_versions = {}
         self.mode = "ask"
         self.track_changes = track_changes
+        from .paths import STATE_ROOT
+        from .capabilities import USER_CAPABILITIES
+        self.protected_roots = {STATE_ROOT.resolve()}
+        self.protected_paths = {USER_CAPABILITIES.resolve()}
 
     def _file_decision(self, operation, target):
         policy = getattr(self, 'command_policy', None)
@@ -66,7 +70,9 @@ class Workspace:
                 raise ValueError("Symbolic links are not allowed.")
         for protected in getattr(self, 'protected_paths', set()):
             if current.resolve() == protected or (current.exists() and protected.exists() and current.samefile(protected)):
-                raise ValueError('User command policy is protected from model file tools; edit it outside Codine.')
+                raise ValueError('User policy/configuration is protected from model file tools; edit it outside Codine.')
+        if any(current.resolve().is_relative_to(root) for root in self.protected_roots):
+            raise ValueError('Managed application state is protected from model file tools.')
         if not current.resolve().is_relative_to(self.root):
             raise ValueError("Path escapes the project.")
         if not directory and current.is_dir():

@@ -76,6 +76,7 @@ class Session:
     title: str = ""
     last_run: dict = field(default_factory=dict)
     git_baseline: dict = field(default_factory=dict)
+    migration: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
     updated: str = field(default_factory=now)
@@ -167,6 +168,8 @@ class SessionStore:
         from .task_plan import validate_plan
         validate_plan(session.plan)
         validate_title(session.title)
+        from .migration import validate_migration
+        validate_migration(session.migration)
         from .run_state import validate_run
         validate_run(session.last_run)
         from .git_awareness import validate_baseline
@@ -211,23 +214,27 @@ class SessionStore:
         self.save(session)
         return session
 
-    def _read_session(self, ident):
+    def _read_session(self, ident, *, expected_project=None, repair_pending=True, payload=None):
         path = self.path(ident)
-        if path.stat().st_size > 20_000_000:
+        if payload is None and path.stat().st_size > 20_000_000:
             raise ValueError("Session is too large to load (20 MB limit).")
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8")) if payload is None else payload
             session = Session(**data)
-            if session.version != 1 or session.id != ident or session.project != str(self.project):
+            if type(session.version) is not int or session.version != 1 or session.id != ident or session.project != (expected_project or str(self.project)):
                 raise ValueError("Unsupported session version, ID, or workspace.")
             if session.provider not in ('nvidia', 'openrouter'):
                 raise ValueError('Unknown saved provider.')
+            if not isinstance(session.billing, dict):
+                raise ValueError("Session billing must be an object.")
             if session.billing:
                 from .budget import Budget
                 Budget(session.billing)
             from .task_plan import validate_plan
             validate_plan(session.plan)
             validate_title(session.title)
+            from .migration import validate_migration
+            validate_migration(session.migration)
             from .run_state import validate_run
             validate_run(session.last_run)
             from .git_awareness import validate_baseline
@@ -260,7 +267,8 @@ class SessionStore:
                 raise ValueError("Invalid saved model.")
             if not isinstance(session.usage, dict) or any(type(session.usage.get(key)) is not int or session.usage[key] < 0 for key in ('input', 'output', 'total')):
                 raise ValueError("Invalid usage counters.")
-            session.repair_pending()
+            if repair_pending:
+                session.repair_pending()
         except (TypeError, KeyError, AttributeError, json.JSONDecodeError) as error:
             raise ValueError("Malformed session; original file left unchanged.") from error
         return session

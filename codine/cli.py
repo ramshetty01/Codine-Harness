@@ -66,6 +66,9 @@ def parser():
     result.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     result.add_argument('--project', default='.', help='Workspace directory (default: current directory)')
     group = result.add_mutually_exclusive_group()
+    group.add_argument('--migrate-session', metavar='ID', help='Preview or confirm a moved-project session migration without network access')
+    result.add_argument('--from-project', help='Original absolute project path for migration')
+    result.add_argument('--confirm-migration', metavar='SHA256', help='Apply the exact previously previewed migration')
     group.add_argument('--resume', metavar='ID', help='Resume a project session')
     group.add_argument('--continue', dest='continue_session', action='store_true', help='Resume most recently saved session')
     result.add_argument('--prompt', help='Run one prompt; stdin pipes are also accepted')
@@ -321,6 +324,33 @@ def command(text, agent, workspace, ui):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.migrate_session:
+        if not args.from_project or any((args.check, args.prompt is not None, args.provider, args.model,
+                args.executor, args.execution_profile, args.policy, args.image, args.plan)):
+            parser().error('--migrate-session requires --from-project and accepts only --project, --confirm-migration and --json.')
+        from .migration import migrate
+        try:
+            result = migrate(args.project, args.migrate_session, args.from_project,
+                             confirmation=args.confirm_migration, system=SYSTEM)
+            if args.json:
+                JsonTerminal(Redactor()).emit('migration', result)
+            else:
+                print(json.dumps(result, indent=2))
+                import shlex
+                next_args = (['codine', '--project', result['target_project'], '--migrate-session', args.migrate_session,
+                              '--from-project', args.from_project, '--confirm-migration', result['confirmation']]
+                             if result['status'] == 'preview' else
+                             ['codine', '--project', result['target_project'], '--resume', result['new_session_id']])
+                print(shlex.join(next_args))
+            return 0
+        except (OSError, ValueError, TypeError) as error:
+            if args.json:
+                JsonTerminal(Redactor()).emit('error', {'message': str(error)})
+            else:
+                print('Migration failed: ' + str(error), file=sys.stderr)
+            return 2
+    if args.from_project or args.confirm_migration:
+        parser().error('--from-project and --confirm-migration require --migrate-session.')
     if args.json and not args.check and args.prompt is None and sys.stdin.isatty():
         parser().error('--json needs --prompt or piped stdin.')
     if args.check:
@@ -390,7 +420,7 @@ def main(argv=None):
         workspace.execution_credentials = execution_credentials
         workspace.command_policy = command_policy
         workspace.policy_interactive = ui.interactive
-        workspace.protected_paths = {command_policy.source.resolve()}
+        workspace.protected_paths.add(command_policy.source.resolve())
         if args.plan:
             workspace.mode = 'plan'
         agent = Agent(config, provider, None, store, session, ui.emit, redactor)
