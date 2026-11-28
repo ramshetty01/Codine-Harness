@@ -17,6 +17,19 @@ import unittest
 from codine.config import APP_ROOT
 
 
+def saved_reply(path, content, timeout=5):
+    """Streaming text is not a durable boundary; wait for the saved run outcome."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        data = json.loads(path.read_text())
+        if (data.get('last_run', {}).get('outcome') == 'completed' and
+                data['messages'][-1].get('role') == 'assistant' and
+                data['messages'][-1].get('content') == content and not data.get('pending')):
+            return data
+        time.sleep(.01)
+    raise AssertionError('Expected reply was not durably completed: ' + content)
+
+
 class PTY:
     def __init__(self, argv, cwd, env=None, columns=120):
         self.master, slave = pty.openpty()

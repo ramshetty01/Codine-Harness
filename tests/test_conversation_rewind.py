@@ -120,7 +120,7 @@ class ConversationRewindTests(unittest.TestCase):
 class ConversationRewindTerminalTests(unittest.TestCase):
     def test_real_terminal_confirmation_creates_historical_child_without_replay(self):
         import sys
-        from tests.test_terminal_integration import PTY
+        from tests.test_terminal_integration import PTY, saved_reply
         driver=r'''
 from codine import cli
 class Fake:
@@ -132,6 +132,7 @@ class Fake:
         (self.root/'calls.txt').write_text(str(self.calls))
         text='FIRST_DONE' if self.calls==1 else 'SECOND_DONE'
         emit('text',text)
+        __import__('time').sleep(.1)  # Stream visibly before committing the reply.
         return {'role':'assistant','content':text},'stop',None
 cli.NvidiaProvider=Fake
 raise SystemExit(cli.main(['--provider','nvidia']))
@@ -144,7 +145,7 @@ raise SystemExit(cli.main(['--provider','nvidia']))
                 terminal.send(b'First question\r');terminal.until(b'FIRST_DONE')
                 terminal.send(b'Second question\r');terminal.until(b'SECOND_DONE')
                 parent=next((root/'.codine/sessions').glob('*.json'))
-                original=json.loads(parent.read_text())['messages']
+                original=saved_reply(parent,'SECOND_DONE')['messages']
                 terminal.send(b'/rewind-context 1\r');terminal.until(b'Approve? Type yes:')
                 self.assertEqual(len(list((root/'.codine/sessions').glob('*.json'))),1)
                 terminal.send(b'yes\r');terminal.until(b'Conversation rewound into a new child')

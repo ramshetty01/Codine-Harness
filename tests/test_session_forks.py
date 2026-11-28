@@ -267,7 +267,7 @@ class SessionForkTests(unittest.TestCase):
 class SessionForkTerminalTests(unittest.TestCase):
     def test_terminal_fork_tree_navigation_preserves_parent_without_model_replay(self):
         import sys
-        from tests.test_terminal_integration import PTY
+        from tests.test_terminal_integration import PTY, saved_reply
         driver = r'''
 from codine import cli
 class Fake:
@@ -282,6 +282,7 @@ class Fake:
             assert messages[-1]['content']=='Child question'
         text='PARENT_COMPLETE' if self.calls == 1 else 'CHILD_COMPLETE'
         emit('text',text)
+        __import__('time').sleep(.1)  # Stream visibly before committing the reply.
         return {'role':'assistant','content':text}, 'stop', None
 cli.NvidiaProvider=Fake
 raise SystemExit(cli.main(['--provider','nvidia']))
@@ -294,7 +295,7 @@ raise SystemExit(cli.main(['--provider','nvidia']))
                 terminal.send(b'Parent question\r'); terminal.until(b'PARENT_COMPLETE')
                 parent_path=next((root/'.codine/sessions').glob('*.json'))
                 parent_id=parent_path.stem
-                parent_history=json.loads(parent_path.read_text())['messages']
+                parent_history=saved_reply(parent_path,'PARENT_COMPLETE')['messages']
                 terminal.send(b'/fork Alternative\r'); terminal.until(b'Forked complete tip history')
                 child_path=next(p for p in (root/'.codine/sessions').glob('*.json') if p != parent_path)
                 self.assertEqual(json.loads(child_path.read_text())['branch']['parent'], parent_id)
