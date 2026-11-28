@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
+    '/theme': 'Choose auto, dark, light or high contrast',
     '/storage': 'Inspect managed storage and review retention plans',
     '/cache': 'Reported cache counts',
     '/fallback': 'Review and confirm a fresh-context alternative',
@@ -125,6 +126,8 @@ class Terminal:
         self.redactor = redactor
         self.interactive = sys.stdin.isatty() and sys.stdout.isatty() if interactive is None else interactive
         self.color = self.interactive and 'NO_COLOR' not in os.environ and os.getenv('TERM') != 'dumb'
+        self.theme = 'auto'
+        self.style = STYLE
         self.state = lambda: {}
         self.section = None
         self.buffer = ''
@@ -165,10 +168,17 @@ class Terminal:
             event.app.exit(result='/editor')
         self.editor = PromptSession(multiline=True, key_bindings=bindings, history=history,
             prompt_continuation=FormattedText([('class:border', '  · ')]),
-            bottom_toolbar=self.toolbar, style=STYLE if self.color else Style.from_dict({}),
+            bottom_toolbar=self.toolbar, style=self.style if self.color else Style.from_dict({}),
             color_depth=None if self.color else ColorDepth.DEPTH_1_BIT,
             completer=self.completer, complete_while_typing=True,
             reserve_space_for_menu=4, enable_history_search=False, refresh_interval=.25)
+
+    def apply_theme(self, name):
+        from .themes import style_for
+        self.style=style_for(name,STYLE)
+        self.theme=name
+        if self.interactive:
+            self._configure_editor(self.input_preferences, self.prompt_history)
 
     def configure_input(self, project):
         if not self.interactive:
@@ -180,6 +190,8 @@ class Terminal:
             self._configure_editor()
             self.write('User input settings and persistent history disabled: their paths are inside this project. Default keys remain available; choose a narrower project to enable user customization.')
             return
+        from .themes import load as load_theme
+        self.apply_theme(load_theme(project))
         settings = preferences(project)
         from prompt_toolkit.history import DummyHistory
         history = PrivateHistory(HISTORY_PATH, lambda: self.redactor) if settings['history'] else DummyHistory()
@@ -207,7 +219,7 @@ class Terminal:
     def line(self, text='', tone='text'):
         text = self.clean(text)
         if self.color:
-            print_formatted_text(FormattedText([(f'class:{tone}', text)]), style=STYLE)
+            print_formatted_text(FormattedText([(f'class:{tone}', text)]), style=self.style)
         else:
             print(text, flush=True)
 
@@ -328,7 +340,7 @@ class Terminal:
             self.line('  Declined: approval requires an interactive terminal.', 'accent')
             return False
         try:
-            answer = PromptSession(style=STYLE if self.color else Style.from_dict({}), color_depth=None if self.color else ColorDepth.DEPTH_1_BIT).prompt('Approve? Type yes: ')
+            answer = PromptSession(style=self.style if self.color else Style.from_dict({}), color_depth=None if self.color else ColorDepth.DEPTH_1_BIT).prompt('Approve? Type yes: ')
             approved = answer.strip().lower() == 'yes'
             self.line('  Approved' if approved else '  Declined', 'success' if approved else 'accent')
             return approved
@@ -402,7 +414,7 @@ class Terminal:
 
     def _markdown_fragments(self, fragments):
         print_formatted_text(FormattedText([(f'class:{tone}', value) for tone, value in fragments]),
-                             style=STYLE, end='', flush=True)
+                             style=self.style if self.color else Style.from_dict({}), end='', flush=True)
 
     def _flush(self, final=False):
         # Hold only a possible secret prefix at the chunk boundary. Holding the

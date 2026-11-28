@@ -23,6 +23,7 @@ from .inbox import Inbox
 from .busy_input import busy_input, queue_command, InputOwnershipError
 
 HELP = '''Commands
+  /theme [auto|dark|light|contrast]  Choose a user-owned terminal theme
   /queue                Show pending steering and follow-ups
   /steer TEXT           Queue an urgent correction at the next safe boundary
   /drop ID              Remove a pending queued item
@@ -168,6 +169,9 @@ def command(text, agent, workspace, ui):
     elif name == '/status':
         from .status_view import snapshot, lines
         ui.write('\n'.join(lines(snapshot(agent, workspace, ui, session.execution.get('executor', 'host')))))
+    elif name == '/theme':
+        from .themes import command as theme_command
+        theme_command(argument,workspace.root,ui)
     elif name == '/settings':
         from .settings import describe
         ui.write(describe(agent.config, session.model))
