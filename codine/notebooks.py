@@ -74,7 +74,7 @@ def validate_structure(document):
 class Notebooks:
     def __init__(self, workspace):
         self.workspace = workspace
-        self.coverage = {}
+        self.coverage = workspace.notebook_reads
 
     def load(self, path):
         target = self.workspace.resolve(path)

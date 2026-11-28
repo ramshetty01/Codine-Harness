@@ -31,6 +31,7 @@ class Workspace:
         self.emit = emit
         self.app_root = Path(app_root).resolve() if app_root else None
         self.read_versions = {}
+        self.notebook_reads = {}
         self.read_ranges = {}
         self.lifecycle_versions = {}
         self.mode = "ask"
@@ -398,6 +399,7 @@ class Workspace:
         store.save(record)
         self.change_group_id = None
         self.read_versions.clear()
+        self.notebook_reads.clear()
         self.read_ranges.clear()
         return {'status': 'undone', 'path': record['path'], 'change': record['id']}
 

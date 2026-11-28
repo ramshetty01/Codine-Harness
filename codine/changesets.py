@@ -323,7 +323,7 @@ def rewind(workspace, ident):
         restore_one(workspace, store, record, path, observed[path], unpacked(entry['before']))
     record['status'] = 'rewound'
     store.save(record)
-    workspace.read_versions.clear(); workspace.read_ranges.clear(); workspace.lifecycle_versions.clear()
+    workspace.read_versions.clear(); workspace.read_ranges.clear(); workspace.lifecycle_versions.clear(); getattr(workspace, 'notebook_reads', {}).clear()
     if getattr(workspace, 'change_group_id', None) == ident: workspace.change_group_id = None
     return {'status': 'rewound', 'changeset': ident, 'paths': list(record['entries'])}
 
@@ -390,5 +390,5 @@ def apply(workspace, changes):
             workspace._atomic_write(workspace.resolve(path, operation='write'), after['data'], current['data'] if current else None)
     finally:
         workspace.track_changes = tracked
-        workspace.read_versions.clear(); workspace.read_ranges.clear(); workspace.lifecycle_versions.clear()
+        workspace.read_versions.clear(); workspace.read_ranges.clear(); workspace.lifecycle_versions.clear(); getattr(workspace, 'notebook_reads', {}).clear()
     return {'status': 'applied', 'changeset': ident, 'paths': list(observed)}

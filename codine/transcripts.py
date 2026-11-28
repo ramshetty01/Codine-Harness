@@ -152,6 +152,7 @@ def command(kind, argument, agent, workspace, ui, system):
             workspace.change_session_id = replacement.id
             workspace.change_group_id = None
             workspace.read_versions.clear()
+            getattr(workspace, 'notebook_reads', {}).clear()
             workspace.read_ranges.clear()
             workspace.lifecycle_versions.clear()
             agent.restart_requested = False

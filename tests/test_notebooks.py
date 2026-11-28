@@ -187,3 +187,27 @@ class NotebookTests(unittest.TestCase):
         self.ws.approve.assert_called_once()
         rewind(self.ws,self.ws.change_group_id)
         self.assertEqual(self.path.read_bytes(),before)
+    def test_switch_away_and_back_without_notebook_call_revokes_old_read(self):
+        from codine.agent import Agent
+        from codine.cli import command
+        from codine.config import Config, Redactor
+        from codine.sessions import Session, SessionStore
+        store=SessionStore(self.root);self.addCleanup(store.close)
+        session=Session.create(self.root,'fake','system')
+        store.save(session)
+        agent=Agent(Config(self.root),Mock(),Mock(),store,session,Mock(),Redactor())
+        self.ws.change_session_id=session.id
+        result=self.nb.read('analysis.ipynb',cell=1)
+        self.assertTrue(self.nb.coverage)
+        ui=Mock();ui.interactive=False
+        command('/new',agent,self.ws,ui)
+        self.assertNotEqual(agent.session.id,session.id)
+        self.assertFalse(self.nb.coverage)
+        command('/resume '+session.id,agent,self.ws,ui)
+        self.assertEqual(agent.session.id,session.id)
+        before=self.path.read_bytes()
+        with self.assertRaisesRegex(ValueError,'entire'):
+            self.nb.edit('analysis.ipynb',1,'print(2)',result['sha256'])
+        self.assertEqual(self.path.read_bytes(),before)
+        self.nb.read('analysis.ipynb',cell=1)
+        self.assertEqual(self.nb.edit('analysis.ipynb',1,'print(2)',result['sha256'])['status'],'updated')

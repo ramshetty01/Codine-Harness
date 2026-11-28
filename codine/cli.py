@@ -269,6 +269,7 @@ def command(text, agent, workspace, ui):
         workspace.change_session_id = replacement.id
         workspace.change_group_id = None
         workspace.read_versions.clear()
+        getattr(workspace, 'notebook_reads', {}).clear()
         workspace.read_ranges.clear()
         if hasattr(workspace, "project_checks"):
             workspace.project_checks.candidates.clear()
