@@ -37,6 +37,7 @@ HELP = '''Commands
   /instructions [PATH]  Inspect global/root and scoped file guidance
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
+  /packages             Review, install or remove local extension packages
   /extensions           Discover, list, load, unload, reload or inspect trusted extensions
   /ext NAME:COMMAND     Invoke an explicitly loaded extension command
   /trust                Review, allow, list or revoke executable extension snapshots
@@ -209,6 +210,9 @@ def command(text, agent, workspace, ui):
             ui.write('Undone ' + result['path'])
         else:
             ui.write(result.get('message', result['status'].capitalize()))
+    elif name == '/packages':
+        from .extension_packages import command as package_command
+        package_command(argument, agent, workspace, ui)
     elif name in ('/extensions', '/ext'):
         from .extension_commands import command as extension_command
         extension_command(name[1:], argument, agent, workspace, ui)

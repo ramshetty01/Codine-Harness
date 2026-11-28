@@ -16,6 +16,7 @@ from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
     '/fork': 'Fork this complete conversation tip', '/tree': 'Inspect branches or resume a node',
+    '/packages': 'Review and install local extension packages',
     '/extensions': 'Discover and manage trusted extensions', '/ext': 'Invoke a loaded extension command',
     '/mcp': 'Review trust and manage local MCP stdio connections',
     '/trust': 'Review, allow, list or revoke exact executable extension snapshots',
