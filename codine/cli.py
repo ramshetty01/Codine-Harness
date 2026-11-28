@@ -427,29 +427,46 @@ def main(argv=None):
         execution_profile = ExecutionProfile.load(args.execution_profile) if args.execution_profile else None
         # Capture only explicitly named shell values before dotenv can add project settings.
         execution_credentials = execution_profile.capture_shell() if execution_profile else None
-        config = Config.load(args.project, provider=args.provider, model=args.model)
+        resume, saved_selection = args.resume, None
+        if resume or args.continue_session:
+            project = Path(args.project).resolve()
+            if not project.is_dir():
+                raise ValueError('Project must be an existing directory.')
+            preview_store = SessionStore(project)
+            try:
+                if args.continue_session:
+                    rows = preview_store.list()
+                    resume = rows[0]['id'] if rows else None
+                if resume:
+                    preview_store.acquire(resume)
+                    preview = preview_store._read_session(resume, repair_pending=False)
+                    saved_selection = (preview.provider, preview.model)
+                    if args.provider and args.provider != preview.provider:
+                        raise ValueError('Saved provider differs from --provider. Start a new session to switch providers.')
+            finally:
+                preview_store.close()
+        config = Config.load(args.project,
+            provider=args.provider or (saved_selection[0] if saved_selection else None),
+            model=args.model or (saved_selection[1] if saved_selection else None))
         redactor = config.redactor()
         ui.redactor = redactor
         if hasattr(ui, 'configure_input'):
             ui.configure_input(config.project)
         store = SessionStore(config.project, redactor)
-        resume = args.resume
-        if args.continue_session:
-            rows = store.list()
-            resume = rows[0]['id'] if rows else None
-        session = store.load(resume) if resume else Session.create(config.project, config.model, SYSTEM, provider=config.provider)
         if resume:
-            if args.provider and args.provider != session.provider:
-                raise ValueError('Saved provider differs from --provider. Start a new session to switch providers.')
-            config = Config.load(config.project, provider=session.provider, model=args.model or session.model)
+            store.acquire(resume)
+            current = store._read_session(resume, repair_pending=False)
+            if (current.provider, current.model) != saved_selection:
+                raise ValueError('Saved provider/model changed during startup. Restart selection; no provider request sent.')
+            session = store.load(resume)
             if not args.provider:
                 config.setting_sources['provider'] = 'saved session'
             if not args.model:
                 config.setting_sources['model'] = 'saved session'
-            redactor = config.redactor()
-            ui.redactor = store.redactor = redactor
             if args.model:
                 session.model = args.model
+        else:
+            session = Session.create(config.project, config.model, SYSTEM, provider=config.provider)
         execution = session.execution
         if not isinstance(execution, dict) or execution.get('executor', 'host') not in ('host', 'docker'):
             raise ValueError('Invalid saved executor settings; refusing to select host implicitly.')

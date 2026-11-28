@@ -71,3 +71,11 @@ labels those values as saved-session choices. No provider call is made during
 configuration loading. Tests use temporary dotenv files and fake credentials to
 verify precedence, provenance, redaction, trust roots, cross-project isolation,
 startup validation, and budget tightening without touching real ledgers.
+
+
+Startup resume/continue reads a bounded saved-session selection before validating
+provider-specific defaults. A missing default OpenRouter model therefore does
+not prevent resuming a saved NVIDIA session. The selected provider/model are
+rechecked under the session lock before loading it; a changed selection fails
+closed rather than mixing saved state with another provider's credentials. An
+empty `--continue` still uses normal configured defaults, with no provider fallback.
