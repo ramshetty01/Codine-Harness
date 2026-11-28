@@ -150,11 +150,21 @@ class ExtensionManager:
             if entry['worker'].closed or not entry['descriptors']['events']: continue
             try:
                 self._invoke(name, 'events', 'turn_end', record)
-            except (OSError, ValueError, KeyboardInterrupt) as error:
-                entry['worker'].close()
+            except (Exception, KeyboardInterrupt) as error:
+                try:
+                    entry['worker'].close()
+                except Exception:
+                    pass  # Report the original callback failure, without rewriting the saved turn.
                 errors.append('Extension ' + name + ' disabled after event failure: ' + safe_text(self.redactor.text(str(error))))
                 if isinstance(error, KeyboardInterrupt): break
         return errors
 
     def close(self):
-        for name in list(self.loaded): self.unload(name)
+        failures = []
+        for name in list(self.loaded):
+            try:
+                self.unload(name)
+            except Exception:
+                failures.append(name)
+        if failures:
+            raise ValueError('Could not finish extension cleanup: ' + ', '.join(failures))

@@ -121,3 +121,16 @@ class ExtensionManagerTests(unittest.TestCase):
         with patch.object(agent,'_run_turn',return_value='completed'), patch.object(store,'save',side_effect=OSError('full')):
             with self.assertRaises(PersistenceError):agent.run_turn('task')
         manager.turn_end.assert_not_called()
+
+    def test_unexpected_event_error_stays_isolated_and_cleanup_attempts_every_worker(self):
+        self.fixture(); self.manager.load('manifest.json')
+        worker=self.manager.loaded['example']['worker']
+        with patch.object(worker,'invoke',side_effect=RuntimeError('unexpected supervisor error')):
+            warnings=self.manager.turn_end({'id':'done'})
+        self.assertIn('unexpected supervisor error',warnings[0])
+        self.assertTrue(worker.closed)
+        other=Mock(); other.close.return_value=None
+        self.manager.loaded['second']={'worker':other,'tools':[]}
+        with patch.object(worker,'close',side_effect=RuntimeError('cleanup')):
+            with self.assertRaisesRegex(ValueError,'cleanup'):self.manager.close()
+        other.close.assert_called_once()

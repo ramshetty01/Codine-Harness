@@ -674,7 +674,11 @@ def main(argv=None):
     finally:
         cleanup_failed = False
         if agent is not None and getattr(agent, 'extension_manager', None):
-            agent.extension_manager.close()
+            try:
+                agent.extension_manager.close()
+            except (OSError, ValueError, RuntimeError) as error:
+                cleanup_failed = True
+                show_error(ui, error)
         if jobs:
             try:
                 jobs.close()
