@@ -406,3 +406,39 @@ Parallel work continues on read-only workers, shared supervision, and a second
 pinned repository evaluation pack. Worker launch must retain the parent's existing
 accounting authority. These foundations do not yet satisfy the two-worker M7 gate.
 Existing user edits in example.py remain untouched and unstaged.
+
+## Verified M3/M6 completion and next integration
+
+Hosted run [46099933918](https://github.com/ramshetty01/Codine-Harness/actions/runs/46099933918)
+passed all nine jobs at `fa03fdb`. The preceding failure was the CI network guard
+blocking new local HTTP fixtures. Tests now register only their exact literal
+loopback port for a scoped lifetime; external and unregistered connections remain
+blocked, including after exceptional cleanup. The CI-equivalent local run passed
+834 tests. M3's combined long-task gate and M6's integration gate are accepted.
+S7, X4, X8, X9, M6, M7, M8 and Q1 have verified closure comments. Totals are now
+**71/91 issues closed and 5/8 milestones closed**. M1, M7 and M8 remain open.
+
+The next local integration adds five JavaScript source-derived tasks to the ten
+Python tasks, with pinned upstream source/license and a separately prepared
+Node/Python image. All five JavaScript baseline/reference pairs passed their real
+restricted-container checks. The full local integration through `abd99c3` passed
+**861 tests with Docker, Node fixtures and the CI network guard enabled**, zero
+skips. Installed-wheel startup, bundled resources, extensions, SDK/session resume
+and the 12 offline exercises passed. These remain fixture/harness measurements,
+not live model solve rates.
+
+P1/P2 now expose a supervised two-reader library with separate child contexts,
+serialized parent-owned completion/accounting, collective cancellation, bounded
+summaries and durable archival child links. Independent review caught and fixed
+parent-run/recovery ownership races. Parallel ASK reads deny without calling
+terminal input from child threads. Blocking in-process code cannot be forcibly
+killed; unresolved work retains ownership rather than claiming a hard deadline.
+The terminal task workflow and editing-worktree integration remain in progress,
+so P1/P2/M7 stay open until their full runtime gate passes.
+
+A follow-up integration check found that retention needed to protect newly added
+supervision metadata. `8409877` retains all parent/child supervision sessions and
+blocks cleanup while ownership is active or unresolved; all 42 focused storage,
+worker and supervisor checks passed. No real user cleanup or new API spending
+occurred. Isolated Git worktrees, task dependencies/resources, and controlled
+repeat-evaluation reports are being implemented separately.

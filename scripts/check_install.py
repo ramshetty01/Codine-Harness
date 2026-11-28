@@ -47,6 +47,9 @@ assert not STATE_ROOT.is_relative_to(APP_ROOT)
 assert version('codine-harness')
 for name in ('tasks.json', 'repository_tasks.json'):
     assert json.loads(eval_resource(name).read_text())['tasks']
+from codine.command_evals import PACK_FILES, validate_pack
+for name in PACK_FILES.values():
+    validate_pack(json.loads(eval_resource(name).read_text()))
 assert free_tool_models([]) == []
 print(json.dumps({'config':str(CONFIG_ROOT),'state':str(STATE_ROOT)}))
 '''
