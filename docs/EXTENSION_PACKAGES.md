@@ -134,3 +134,11 @@ no host mounts, a read-only root and temporary scratch space. Native flags follo
 [Linux's UAPI definitions](https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h)
 and the installed macOS SDK's `sys/stdio.h` (`renameatx_np`, `RENAME_EXCL`).
 No model API calls are needed for these checks.
+
+Staged files are checked against the receipt after its first durable write, and
+published files are checked again before installation is reported successful.
+This is not atomic content compare-and-swap: a concurrent change during directory
+publication leaves a `pending_install` receipt and retains the destination bytes
+for inspection. The receipt's staging name may no longer exist after publication;
+check its destination too. Codine does not overwrite or delete those changed bytes
+or silently retry installation.

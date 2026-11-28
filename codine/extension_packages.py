@@ -1,5 +1,6 @@
 """Reviewed local extension packages. No downloads, installers, imports or trust grants."""
 import base64
+import copy
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -133,7 +134,7 @@ class Packages:
     def review(self, source):
         snapshot = self.snapshot(source)
         if len(self.reviews) >= 16: self.reviews.pop(next(iter(self.reviews)))
-        self.reviews[snapshot['digest']] = snapshot
+        self.reviews[snapshot['digest']] = copy.deepcopy(snapshot)
         return self.summary(snapshot)
 
     @staticmethod
@@ -262,7 +263,14 @@ class Packages:
                     'identity':[info.st_dev,info.st_ino], 'file_identities':identities, 'files':{key:value['sha256'] for key,value in snapshot['files'].items()},
                     'staging':staging}
                 rows[name]=receipt;self.save(state,rows)
+                self._contents('.codine/packages/'+staging,receipt)
                 rename_noreplace(staging,name,src_dir_fd=state,dst_dir_fd=parent);os.fsync(parent)
+                try:self._contents(destination,receipt)
+                except (OSError,ValueError):
+                    # Publication is not an atomic content compare-and-swap.
+                    # Preserve the pending receipt and all bytes if a concurrent
+                    # writer changed the package during the no-replace move.
+                    raise ValueError('Published package changed during installation; bytes retained at destination with pending receipt. Inspect package state.') from None
                 receipt['status']='installed';receipt.pop('staging');self.save(state,rows)
         return {'status':'installed','destination':destination,'manifest_path':receipt['manifest_path'],'trust_granted':False}
 

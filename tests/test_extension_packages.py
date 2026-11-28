@@ -144,6 +144,50 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(receipt['status'],'pending_install')
         self.assertTrue((self.root/'.codine/packages'/receipt['staging']/'main.py').exists())
 
+    def test_returned_review_metadata_cannot_mutate_cached_snapshot(self):
+        self.package['api']=999;self.write_package()
+        review=self.packages.review('source')
+        self.assertFalse(review['compatibility']['compatible'])
+        review['compatibility']['compatible']=True
+        review['package']['name']='different'
+        with self.assertRaisesRegex(ValueError,'compatibility'):
+            self.packages.install(review['digest'],self.approve,self.emit)
+        self.approve.assert_not_called()
+        self.assertFalse((self.root/'.codine-extensions').exists())
+
+    def test_staging_change_after_receipt_write_is_not_published(self):
+        digest=self.review();original=self.packages.save
+        def mutate_stage(fd,rows):
+            original(fd,rows)
+            receipt=rows['demo']
+            if receipt['status']=='pending_install':
+                (self.packages.state/receipt['staging']/'main.py').write_text('changed staging bytes')
+        with patch.object(self.packages,'save',side_effect=mutate_stage):
+            with self.assertRaisesRegex(ValueError,'changed'):
+                self.packages.install(digest,self.approve,self.emit)
+        self.assertFalse((self.root/'.codine-extensions/demo').exists())
+        row=self.packages.list()[0]
+        self.assertEqual(row['status'],'pending_install')
+        self.assertEqual((self.packages.state/row['staging']/'main.py').read_text(),'changed staging bytes')
+
+    def test_publication_change_never_reports_clean_install_or_deletes_bytes(self):
+        from codine.rename_noreplace import rename_noreplace
+        digest=self.review()
+        def mutate_then_publish(source,destination,**kwargs):
+            (self.packages.state/source/'main.py').write_text('racing published bytes')
+            return rename_noreplace(source,destination,**kwargs)
+        with patch('codine.extension_packages.rename_noreplace',side_effect=mutate_then_publish):
+            with self.assertRaisesRegex(ValueError,'retained at destination'):
+                self.packages.install(digest,self.approve,self.emit)
+        row=self.packages.list()[0]
+        self.assertEqual(row['status'],'pending_install')
+        target=self.root/'.codine-extensions/demo/main.py'
+        self.assertEqual(target.read_text(),'racing published bytes')
+        self.assertIn('staging',row)
+        with self.assertRaisesRegex(ValueError,'receipt'):
+            self.packages.install(digest,self.approve,self.emit)
+        self.assertEqual(target.read_text(),'racing published bytes')
+
     def test_file_replacement_with_identical_bytes_requires_manual_review(self):
         self.install();target=self.root/'.codine-extensions/demo/main.py'
         replacement=target.with_name('replacement.py');replacement.write_bytes(target.read_bytes());replacement.replace(target)
