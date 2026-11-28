@@ -80,6 +80,7 @@ class Session:
     git_baseline: dict = field(default_factory=dict)
     migration: dict = field(default_factory=dict)
     delegation: dict = field(default_factory=dict)
+    worker_tasks: dict = field(default_factory=dict)
     branch: dict = field(default_factory=dict)
     version: int = 1
     created: str = field(default_factory=now)
@@ -184,6 +185,8 @@ class SessionStore:
         validate_usage(session.usage_details)
         from .supervisor import validate as validate_delegation
         validate_delegation(session.delegation)
+        from .worker_tasks import validate as validate_worker_tasks
+        validate_worker_tasks(session.worker_tasks)
         from .custom_endpoint import validate_session_endpoint
         validate_session_endpoint(session)
         from .task_plan import validate_plan
@@ -305,6 +308,8 @@ class SessionStore:
             validate_usage(session.usage_details)
             from .supervisor import validate as validate_delegation
             validate_delegation(session.delegation)
+            from .worker_tasks import validate as validate_worker_tasks
+            validate_worker_tasks(session.worker_tasks)
             if repair_pending:
                 session.repair_pending()
         except (TypeError, KeyError, AttributeError, json.JSONDecodeError) as error:

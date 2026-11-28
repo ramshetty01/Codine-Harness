@@ -229,7 +229,11 @@ class IsolatedTrees:
                     raise ValueError('Unsafe integration lock.')
                 try: fcntl.flock(handle, fcntl.LOCK_EX|fcntl.LOCK_NB)
                 except BlockingIOError: raise ValueError('Another integration is running; review again after it completes.') from None
-                return self._integrate(review)
+                original = self.reviews.get(review)
+                if original is None: raise ValueError('Review this exact tree before integration.')
+                from .worker_resources import integration_guard
+                with integration_guard(self.parent, [row['path'] for row in original['changes']]):
+                    return self._integrate(review)
             finally: os.close(handle)
 
     def _integrate(self, review):

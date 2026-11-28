@@ -67,6 +67,7 @@ HELP = '''Commands
   /save                 Save now (also automatic after every boundary)
   /clear                Omit old history from new requests; keep archive
   /artifact ID [OFFSET] Read a local tool-output snapshot without a model call
+  /workers status|plan JSON|run [LIMITS_JSON]|cancel|recover  Read-only task dependencies
   /tasks [clear]        Inspect saved task progress; clear starts a new plan
   /context              Inspect active context and estimated remaining space
   /compact              Keep the latest 3 whole turns in active context
@@ -385,6 +386,9 @@ def command(text, agent, workspace, ui):
         ui.write(result['content'])
         ui.write(f"Source changed: {result['source_changed']} | Next offset: {result['next_offset']}")
         ui.write(result['notice'])
+    elif name == '/workers':
+        from .worker_tasks import command as worker_command
+        worker_command(argument, agent, workspace, ui)
     elif name == '/tasks':
         from .task_plan import clear_plan, format_plan
         if argument == 'clear':

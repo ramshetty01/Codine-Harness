@@ -108,6 +108,7 @@ def migrate(project, ident, from_project, *, confirmation=None, system):
         replacement = copy.deepcopy(source)
         replacement.id = new_id
         replacement.project = str(target)
+        replacement.worker_tasks = {}
         replacement.branch = {}  # Ancestry belongs to the source project; migration records its origin.
         replacement.created = now()
         replacement.updated = replacement.created

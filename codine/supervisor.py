@@ -142,7 +142,9 @@ class Supervisor:
             with self.lock:
                 row['child']=self.worker.session.id;row['status']='running';self.agent.save()
             self.check();result=self.worker.run(task);self.check()
-            with self.lock:row['status']='completed';self.agent.save()
+            with self.lock:
+                row['status']='failed' if isinstance(result,dict) and result.get('outcome')!='completed' else 'completed'
+                self.agent.save()
             return result
         except BaseException as error:
             if isinstance(error,KeyboardInterrupt):self.cancel()

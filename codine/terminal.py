@@ -16,6 +16,7 @@ from prompt_toolkit.utils import get_cwidth
 
 COMMANDS = {
     '/theme': 'Choose auto, dark, light or high contrast',
+    '/workers': 'Plan, dispatch and inspect read-only task dependencies',
     '/storage': 'Inspect managed storage and review retention plans',
     '/cache': 'Reported cache counts',
     '/fallback': 'Review and confirm a fresh-context alternative',

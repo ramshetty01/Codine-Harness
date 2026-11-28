@@ -181,6 +181,7 @@ def fork(agent, workspace, title='', *, end=None, expected_state=None, fresh_mod
                 child.summary_user = None
                 child.plan = []
                 child.plan_revision = parent.plan_revision + 1
+            child.worker_tasks = {}
             child.pending = None
             child.last_run = {}
             child.git_baseline = {}
