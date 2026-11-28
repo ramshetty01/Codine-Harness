@@ -217,3 +217,69 @@ print('locked',flush=True);sys.stdin.read();store.close()
         self.ws.mode='ask'
         self.storage.apply(plan['digest'],self.approve,self.emit)
         self.assertEqual(secret.read_text(),'fake secret left untouched');self.assertFalse(path.exists())
+
+    def test_auxiliary_reference_bytes_share_inventory_limit(self):
+        # Empty queues can be large whitespace-padded valid JSON, and must count
+        # even though they contain no references or pending input.
+        inbox=self.root/'.codine/sessions/old.inbox'
+        inbox.write_text('[]'+' '*1024);inbox.chmod(0o600)
+        session_bytes=self.store.path(self.session.id).stat().st_size
+        with patch('codine.storage.MAX_READ',session_bytes+1023):
+            with self.assertRaisesRegex(ValueError,'retention blocked'):
+                self.storage.plan(30,1,16)
+        inbox.unlink()
+        folder=self.root/'.codine/storage-trash'/('a'*32)
+        folder.mkdir(parents=True,mode=0o700)
+        manifest=folder/'manifest.json'
+        manifest.write_text('{"status":"complete"}'+' '*1024);manifest.chmod(0o600)
+        with patch('codine.storage.MAX_READ',session_bytes+1023):
+            with self.assertRaisesRegex(ValueError,'trash'):
+                self.storage.plan(30,1,16)
+
+    def test_malformed_trash_manifest_and_deep_queue_fail_closed(self):
+        folder=self.root/'.codine/storage-trash'/('a'*32)
+        folder.mkdir(parents=True,mode=0o700)
+        manifest=folder/'manifest.json';manifest.write_text('[]');manifest.chmod(0o600)
+        with self.assertRaisesRegex(ValueError,'trash'):
+            self.storage.plan(30,1,16)
+        manifest.unlink();folder.rmdir()
+        inbox=self.root/'.codine/sessions/old.inbox'
+        inbox.write_text('['*2000+']'*2000);inbox.chmod(0o600)
+        with self.assertRaisesRegex(ValueError,'retention blocked'):
+            self.storage.plan(30,1,16)
+
+    def test_cross_process_startup_and_save_fail_busy_then_retry_without_deadlock(self):
+        import subprocess,sys
+        from codine.config import APP_ROOT
+        script="""from pathlib import Path
+import errno,sys
+from codine.sessions import Session,SessionStore
+root=Path(sys.argv[1]);mode=sys.argv[2];store=SessionStore(root)
+session=Session.create(root,'fake','system')
+if mode=='save':store.save(session)
+print('ready',flush=True)
+for line in sys.stdin:
+    try:
+        store.save(session)
+        print('saved',flush=True)
+    except OSError as error:
+        print('busy' if error.errno==errno.EBUSY else 'wrong-error',flush=True)
+store.close()
+"""
+        for mode in ('startup','save'):
+            with self.subTest(mode=mode):
+                child=subprocess.Popen([sys.executable,'-c',script,str(self.root),mode],
+                    stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,cwd=APP_ROOT)
+                try:
+                    self.assertEqual(child.stdout.readline().strip(),'ready')
+                    with mutation(self.root,exclusive=True):
+                        child.stdin.write('try\n');child.stdin.flush()
+                        import select
+                        self.assertTrue(select.select([child.stdout],[],[],5)[0],'Publisher deadlocked')
+                        self.assertEqual(child.stdout.readline().strip(),'busy')
+                    child.stdin.write('retry\n');child.stdin.flush()
+                    self.assertTrue(select.select([child.stdout],[],[],5)[0],'Retry deadlocked')
+                    self.assertEqual(child.stdout.readline().strip(),'saved')
+                finally:
+                    child.communicate('',timeout=10)
+                self.assertEqual(child.returncode,0)

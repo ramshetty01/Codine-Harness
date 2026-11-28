@@ -82,14 +82,17 @@ class Storage:
     def inventory(self,read=False):
         rows=[];counts={key:{'files':0,'bytes':0} for key in (*CATEGORIES,'retained_trash')}
         total_read=0;scanned=0;problems=[];trash_text=[];deadline=time.monotonic()+5
-        def read_record(path,info,category):
+        def read_raw(path,info,limit):
             nonlocal total_read
             private(info)
-            if info.st_size>CATEGORIES[category] or total_read+info.st_size>MAX_READ:
+            if info.st_size>limit or total_read+info.st_size>MAX_READ:
                 raise ValueError('Reference inventory exceeds bounded read allowance.')
-            raw,identity=read_bytes(self.root,path,CATEGORIES[category]);total_read+=len(raw)
+            raw,identity=read_bytes(self.root,path,limit);total_read+=len(raw)
             after=(self.root/path).stat(follow_symlinks=False)
             if stamp(info)!=stamp(after) or identity!=[info.st_dev,info.st_ino]:raise ValueError('Storage record changed during scan.')
+            return raw
+        def read_record(path,info,category):
+            raw=read_raw(path,info,CATEGORIES[category])
             try:value=json.loads(raw)
             except (UnicodeError,RecursionError) as error:raise ValueError('Invalid storage record encoding or nesting.') from error
             if not isinstance(value,dict):raise ValueError('Storage record must be an object.')
@@ -105,8 +108,7 @@ class Storage:
                             if not entry.name.endswith('.json') or not re.fullmatch(PATTERNS[category],entry.name[:-5]):
                                 if category=='sessions' and entry.name.endswith('.inbox'):
                                     if read:
-                                        private(info)
-                                        raw,_=read_bytes(self.root,'.codine/sessions/'+entry.name,128000)
+                                        raw=read_raw('.codine/sessions/'+entry.name,info,128000)
                                         queue=json.loads(raw)
                                         if not isinstance(queue,list):raise ValueError('Malformed stored input queue.')
                                         if queue:problems.append('A stored input queue is nonempty; retention blocked.')
@@ -124,7 +126,7 @@ class Storage:
                             except (OSError,ValueError):problems.append('Unsafe, malformed, changed or oversized managed-state record; retention blocked.')
                             rows.append(row)
             except FileNotFoundError:pass
-            except (OSError,ValueError):problems.append('Managed category unavailable or outside scan bounds; retention blocked.')
+            except (OSError,ValueError,RecursionError):problems.append('Managed category unavailable or outside scan bounds; retention blocked.')
         # Retained archives are still references. Never prune something a backup may need.
         try:
             with directory(self.root/'.codine/storage-trash') as trash:
@@ -142,8 +144,10 @@ class Storage:
                                     counts['retained_trash']['files']+=1;counts['retained_trash']['bytes']+=info.st_size
                                     if not read:continue
                                     if entry.name=='manifest.json':
-                                        raw,_=read_bytes(self.root,'.codine/storage-trash/'+batch.name+'/manifest.json',1000000)
-                                        if json.loads(raw).get('status')!='complete':raise ValueError('Pending storage recovery journal.')
+                                        raw=read_raw('.codine/storage-trash/'+batch.name+'/manifest.json',info,1000000)
+                                        manifest=json.loads(raw)
+                                        if not isinstance(manifest,dict) or manifest.get('status')!='complete':
+                                            raise ValueError('Malformed or pending storage recovery journal.')
                                         continue
                                     category,separator,name=entry.name.partition('--')
                                     if not separator or category not in CATEGORIES:raise ValueError('Unknown retained record.')
@@ -151,7 +155,7 @@ class Storage:
                                     trash_text.append(raw.decode('utf-8'))
                                     if category=='sessions':trash_text.append(value.get('id',''))
         except FileNotFoundError:pass
-        except (OSError,ValueError):problems.append('Retained trash references could not be fully scanned; retention blocked.')
+        except (OSError,ValueError,RecursionError):problems.append('Retained trash references could not be fully scanned; retention blocked.')
         return rows,counts,problems,trash_text
 
     def inspect(self):

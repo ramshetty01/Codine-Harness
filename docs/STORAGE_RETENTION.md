@@ -91,7 +91,8 @@ ID indefinitely, nor stop manual edits or unrelated processes. Stop those writer
 before retention. Descriptor identity/hash checks detect observed races; they are
 not a sandbox against a malicious process with the same OS user privileges.
 
-Scans are limited to 5000 entries, 64 MB of reference data, existing per-record
+Scans are limited to 5000 entries, 64 MB of reference data (including inboxes
+and retained-trash manifests), existing per-record
 limits (2–24 MB), and five seconds each for inventory/reference analysis. Reaching
 a bound blocks cleanup; it does not treat the partial scan as complete. Plans are
 kept in memory (at most eight). Unknown temporary files, unsafe links, hardlinks,
@@ -104,7 +105,8 @@ python -m unittest tests.test_storage tests.test_artifacts tests.test_changes te
 ```
 
 Tests use temporary projects and fake clocks, including a real competing session
-process, late references, modified preview/apply records, pending journals,
+process, cross-process startup/save contention and successful retry, malformed
+trash manifests, aggregate auxiliary-record limits, late references, modified preview/apply records, pending journals,
 permission failures, byte bounds, preserved fork ancestry, publication locks,
 and retained references. No cleanup runs against a real user repository and no
 model API is called.
