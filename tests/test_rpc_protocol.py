@@ -123,3 +123,18 @@ class RpcProtocolTests(unittest.TestCase):
         self.assertIn('action declined',self.messages()[0]['data'])
         self.assertIsNone(self.ui.approval)
         self.assertFalse(self.ui._approval_pending)
+
+    def test_truncated_review_notice_blocks_approval_only_for_active_request(self):
+        self.send('large','run',{'text':'large task'})
+        self.assertEqual(self.ui.prompt(),'large task')
+        self.ui.write('secret-test-value '+'😀'*8000)
+        self.assertTrue(self.ui.incomplete_review)
+        self.assertFalse(self.ui.approve('Apply short description?'))
+        self.wait(lambda:any(row.get('event')=='status' for row in self.messages()))
+        self.assertFalse(any(row.get('event')=='approval' for row in self.messages()))
+        self.assertNotIn('secret-test-value',self.output.getvalue())
+        self.send('small','run',{'text':'small task'})
+        self.assertEqual(self.ui.prompt(),'small task')
+        self.assertFalse(self.ui.incomplete_review)
+        self.ui.emit('result','😀'*8000)
+        self.assertFalse(self.ui.incomplete_review,'Generic tool result truncation is not a review notice')

@@ -97,7 +97,14 @@ deadline, so a late reply cannot win the lock race after timeout. Cancellation o
 disconnect also declines.
 Expired, duplicate or mismatched tokens never grant another action. Approval
 descriptions that exceed the encoded frame limit decline immediately; the client
-is never asked to approve a truncated description with missing token fields. The reader
+is never asked to approve a truncated description with missing token fields.
+If any review `notice` (for example a file diff or package/storage preview) is
+truncated, all subsequent approval requests in that same run/command are denied
+without invoking the SDK approval callback. A redacted status event explains the
+denial. Start a new request with a smaller complete preview; the review flag
+resets at that request boundary. Generic tool-result truncation does not set this
+flag, and explicitly configured operations that require no approval retain their
+existing policy. The reader
 handles approval replies and cancellation while the CLI owner thread is waiting;
 there is no competing terminal input reader.
 

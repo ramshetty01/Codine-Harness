@@ -54,8 +54,8 @@ class Fake:
                     emit('status','waiting');time.sleep(.03)
             if text=='unknown cost':return {'role':'assistant','content':'uncertain'},'stop',None
             if text.startswith('write '):
-                args={'path':text.split(' ',1)[1],'content':'hello\n'}
-                return {'role':'assistant','content':None,'tool_calls':[{'id':'call-'+str(time.time_ns()),'type':'function','function':{'name':'write_file','arguments':json.dumps(args)}}]},'tool_calls',usage
+                args={'path':text.split(' ',1)[1],'content':('😀'*8000 if text=='write huge.py' else 'hello\n')}
+                return {'role':'assistant','content':None,'tool_calls':[{'id':'call-'+str(time.time_ns()),'type':'function','function':{'name':'write_file','arguments':json.dumps(args,ensure_ascii=False)}}]},'tool_calls',usage
         emit('text','done')
         return {'role':'assistant','content':'done'},'stop',usage
 cli.NvidiaProvider=cli.OpenRouterProvider=Fake
@@ -213,3 +213,19 @@ class SDKRPCTests(unittest.TestCase):
                 self.assertFalse(marker.exists())
                 client.status()  # Offline inspection only; no provider request.
             finally:client.close()
+
+    def test_truncated_diff_denies_without_callback_and_next_small_request_approves(self):
+        approvals=[];events=[]
+        bootstrap=BOOTSTRAP.replace("api_key='fake-only-key')","api_key='fake-only-key',context_chars=250000,context_tokens=100000)")
+        client=Client(self.project,command=[sys.executable,'-u','-c',bootstrap],
+                      approve=lambda text:approvals.append(text) or True,on_event=events.append)
+        self.addCleanup(client.close)
+        client.run('write huge.py')
+        self.assertFalse((self.project/'huge.py').exists())
+        self.assertEqual(approvals,[])
+        self.assertTrue(any(row['event']=='notice' and isinstance(row['data'],dict)
+                            and row['data'].get('truncated') for row in events))
+        self.assertTrue(any(row['event']=='status' and 'Approval denied' in str(row['data']) for row in events))
+        client.run('write small.py')
+        self.assertEqual((self.project/'small.py').read_text(),'hello\n')
+        self.assertEqual(len(approvals),1)

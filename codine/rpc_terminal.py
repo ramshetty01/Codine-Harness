@@ -44,6 +44,7 @@ class RpcTerminal(JsonTerminal):
         self.active_error = None
         self.active_outcome = None
         self.cancelled = False
+        self.incomplete_review = False
         self.approval = None
         self.seen = set()
         self.started = False
@@ -62,6 +63,8 @@ class RpcTerminal(JsonTerminal):
         raw = json.dumps(value, ensure_ascii=True, allow_nan=False)
         if len(raw.encode()) + 1 > FRAME_LIMIT:
             if 'event' not in value: raise ValueError('RPC response exceeds frame limit.')
+            if value['event'] == 'notice':
+                self.incomplete_review = True
             value['data'] = {'truncated':True, 'original_bytes':len(raw.encode()),
                              'preview':str(value.get('data'))[:8000]}
             raw = json.dumps(value, ensure_ascii=True)
@@ -196,13 +199,16 @@ class RpcTerminal(JsonTerminal):
             try:ident,text=self.requests.get(timeout=.05)
             except queue.Empty:continue
             with self.lock:
-                self.active=ident;self.cancelled=False
+                self.active=ident;self.cancelled=False;self.incomplete_review=False
             return text
         raise EOFError
 
     def approve(self, description):
         with self.lock:
             if self.stopped.is_set() or self.cancelled:return False
+            if self.incomplete_review:
+                self.emit('status','Approval denied: a review notice was truncated in this request. No approval requested. Start a new request with a smaller complete preview.')
+                return False
             item={'token':uuid.uuid4().hex,'allow':False,'ready':threading.Event(),
                   'deadline':time.monotonic()+APPROVAL_TIMEOUT}
             data={'token':item['token'],'description':safe_text(description),'timeout_seconds':APPROVAL_TIMEOUT}
