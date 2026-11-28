@@ -50,6 +50,9 @@ STYLE = Style.from_dict({
     'text': '', 'accent': 'ansiyellow', 'success': 'ansigreen',
     'error': 'ansired bold', 'added': 'ansigreen', 'removed': 'ansired',
     'prompt': 'ansiyellow bold',
+    'md.heading': 'bold', 'md.strong': 'bold', 'md.inline': 'ansicyan',
+    'md.code': '', 'md.fence': 'ansibrightblack', 'md.list': '',
+    'md.quote': 'ansibrightblack', 'md.link': 'underline', 'md.table': 'ansicyan',
     'bottom-toolbar': 'noreverse',
     'completion-menu.completion': 'noreverse',
     'completion-menu.completion.current': 'reverse bold',
@@ -95,6 +98,7 @@ class CommandCompleter(Completer):
 
 
 from .command_output import OutputRedactor
+from .markdown_render import MarkdownStream
 
 
 class Terminal:
@@ -105,6 +109,7 @@ class Terminal:
         self.state = lambda: {}
         self.section = None
         self.buffer = ''
+        self.markdown = MarkdownStream(self._markdown_fragments)
         self.command_redactor = OutputRedactor()
         self.command_channel = None
         self.last_result = None
@@ -328,6 +333,10 @@ class Terminal:
         if len(lines) > limit or any(get_cwidth(line) > self.width - 4 for line in lines[:limit]):
             self.line('    … /details for full output', 'muted')
 
+    def _markdown_fragments(self, fragments):
+        print_formatted_text(FormattedText([(f'class:{tone}', value) for tone, value in fragments]),
+                             style=STYLE, end='', flush=True)
+
     def _flush(self, final=False):
         keep = max(map(len, self.redactor.secrets), default=1) - 1
         cut = len(self.buffer) if final else max(0, len(self.buffer) - keep)
@@ -338,8 +347,14 @@ class Terminal:
                     cut = start
                 start = self.buffer.find(secret, start + 1)
         if cut:
-            print(self.clean(self.buffer[:cut]), end='', flush=True)
+            clean = self.clean(self.buffer[:cut])
+            if self.color and self.section == 'text':
+                self.markdown.feed(clean)
+            else:
+                print(clean, end='', flush=True)
             self.buffer = self.buffer[cut:]
+        if final:
+            self.markdown.finish()
 
     def emit(self, kind, text):
         if kind == 'command_output':
