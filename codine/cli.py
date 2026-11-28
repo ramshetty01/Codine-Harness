@@ -38,6 +38,7 @@ HELP = '''Commands
   /usage                Show reported token counts and missing-data coverage
   /budget               Show shared/session spending; reconcile REQUEST_ID AMOUNT
   /trust                Review, allow, list or revoke executable extension snapshots
+  /memory ACTION        Review proposed/approved project facts; list/show/add/approve/edit/delete
   /templates            List permitted reusable prompt templates
   /template NAME JSON   Preview literal expansion into an unsent draft
   /editor               Edit an unsent draft in your configured external editor
@@ -204,6 +205,9 @@ def command(text, agent, workspace, ui):
     elif name == '/trust':
         from .extension_trust import command as trust_command
         trust_command(argument, agent, workspace, ui)
+    elif name == '/memory':
+        from .project_memory import command as memory_command
+        memory_command(argument, agent, workspace, ui)
     elif name in ('/templates', '/template'):
         from .prompt_templates import command as template_command
         template_command(name[1:], argument, agent, workspace, ui)
@@ -412,6 +416,8 @@ def main(argv=None):
         registry = build_registry(Workspace(APP_ROOT, lambda _: False), lambda: None)
         from .task_plan import register_plan_tool
         register_plan_tool(registry, None)  # Validate declaration only; startup executes no tools.
+        from .project_memory import register_memory_tool
+        register_memory_tool(registry, None)
         from .artifacts import register_artifact_tool
         register_artifact_tool(registry, None)
         from .git_awareness import GitInspector, register_git_tools
@@ -521,6 +527,9 @@ def main(argv=None):
         agent.registry = build_registry(workspace, lambda: agent.request_restart(ui.approve))
         from .task_plan import register_plan_tool
         register_plan_tool(agent.registry, agent)
+        from .project_memory import ProjectMemory, register_memory_tool
+        agent.project_memory = ProjectMemory(config.project, redactor)
+        register_memory_tool(agent.registry, agent)
         from .artifacts import ArtifactStore, register_artifact_tool
         agent.artifact_store = ArtifactStore(config.project, workspace)
         register_artifact_tool(agent.registry, agent.artifact_store)

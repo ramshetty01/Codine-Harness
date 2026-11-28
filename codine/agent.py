@@ -156,8 +156,13 @@ class Agent:
     def instruction_context(self, mark_seen=False):
         manager = getattr(self, 'instruction_manager', None)
         if manager:
-            return manager.context(mark_seen=mark_seen)
-        return load_instructions(self.config.project, authorize=getattr(self, 'authorize_instructions', None))
+            guidance, paths = manager.context(mark_seen=mark_seen)
+        else:
+            guidance, paths = load_instructions(self.config.project, authorize=getattr(self, 'authorize_instructions', None))
+        memory = getattr(self, 'project_memory', None)
+        if memory:
+            guidance += memory.context()
+        return guidance, paths
 
     def configure_shared_budget(self, path, read_metadata=None):
         """Normal CLI sessions share a durable allowance; tests inject temp state."""
