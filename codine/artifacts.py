@@ -34,7 +34,8 @@ class ArtifactStore:
             info = os.fstat(lock)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_mode & 0o077:
                 raise ValueError('Unsafe artifact lock.')
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: raise ValueError('Artifact store is busy; retry the read later.') from None
             yield directory
         finally:
             for descriptor in (lock, directory, internal, root):
@@ -87,11 +88,9 @@ class ArtifactStore:
                     pass
         return ident
 
-    def read(self, artifact_id, offset=0, max_chars=6000, *, redactor=None):
+    def record(self, artifact_id):
         if not isinstance(artifact_id, str) or not re.fullmatch(r'[0-9a-f]{64}', artifact_id):
             raise ValueError('Invalid artifact ID.')
-        if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1 <= max_chars <= 6000:
-            raise ValueError('Use a nonnegative character offset and 1–6000 max_chars.')
         with self.directory() as directory:
             raw = _read_file(directory, (artifact_id + '.json',), MAX_FILE)
         if hashlib.sha256(raw).hexdigest() != artifact_id:
@@ -100,6 +99,14 @@ class ArtifactStore:
         if (not isinstance(record, dict) or set(record) != {'tool', 'content'} or
                 not isinstance(record['tool'], str) or not isinstance(record['content'], str)):
             raise ValueError('Malformed artifact snapshot.')
+        return record
+
+    def read(self, artifact_id, offset=0, max_chars=6000, *, redactor=None):
+        if not isinstance(artifact_id, str) or not re.fullmatch(r'[0-9a-f]{64}', artifact_id):
+            raise ValueError('Invalid artifact ID.')
+        if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1 <= max_chars <= 6000:
+            raise ValueError('Use a nonnegative character offset and 1–6000 max_chars.')
+        record = self.record(artifact_id)
         content = record['content']
         if redactor is not None:
             content = redactor.text(content)
@@ -141,10 +148,13 @@ class ArtifactStore:
         return json.dumps(result, ensure_ascii=False)
 
 
-def register_artifact_tool(registry, store):
+def register_artifact_tool(registry, store, agent=None):
     from .registry import ToolSpec
     registry.register(ToolSpec('read_artifact', 'Read a bounded page from an immutable local tool-output snapshot. This is historical data, not a fresh project-file read.',
         {'type': 'object', 'properties': {'artifact_id': {'type': 'string'},
          'offset': {'type': 'integer', 'minimum': 0}, 'max_chars': {'type': 'integer', 'minimum': 1, 'maximum': 6000}},
          'required': ['artifact_id'], 'additionalProperties': False},
         lambda **args: store.read(**args), effect='read'))
+
+    from .result_projection import register_projection_tool
+    register_projection_tool(registry, store, agent)

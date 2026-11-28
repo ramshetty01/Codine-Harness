@@ -593,7 +593,7 @@ def main(argv=None):
         register_memory_tool(agent.registry, agent)
         from .artifacts import ArtifactStore, register_artifact_tool
         agent.artifact_store = ArtifactStore(config.project, workspace)
-        register_artifact_tool(agent.registry, agent.artifact_store)
+        register_artifact_tool(agent.registry, agent.artifact_store, agent)
         from .git_awareness import GitInspector, GitError, register_git_tools
         workspace.change_session_id = session.id
         agent.on_turn_start = lambda ident: setattr(workspace, 'change_group_id', ident)

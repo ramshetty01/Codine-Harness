@@ -7,6 +7,7 @@ OUTCOMES = {
     'completed': ('awaiting_input', 'model_stop', False),
     'output_limit': ('paused', 'output_limit', True),
     'step_limit': ('paused', 'step_limit', True),
+    'tool_limit': ('paused', 'tool_limit', False),
     'loop_limit': ('paused', 'loop_limit', False),
     'restart': ('restarting', 'restart_requested', True),
     'interrupted': ('cancelled', 'user_cancelled', False),

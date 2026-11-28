@@ -65,7 +65,7 @@ class RunStateTests(unittest.TestCase):
 
     def test_limits_restart_and_blocked_plan_keep_explicit_states(self):
         for outcome, state, retryable in [('output_limit', 'paused', True), ('step_limit', 'paused', True),
-                                          ('loop_limit', 'paused', False), ('restart', 'restarting', True)]:
+                                          ('loop_limit', 'paused', False), ('tool_limit', 'paused', False), ('restart', 'restarting', True)]:
             self.events.clear()
             with patch.object(self.agent, '_run_turn', return_value=outcome):
                 self.assertEqual(self.agent.run_turn('task'), outcome)

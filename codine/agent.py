@@ -277,6 +277,8 @@ class Agent:
 
     def _run_turn(self, text, *, queued_item=None):
         self.emit('run_start', {'session': self.session.id, 'model': self.session.model, 'provider': self.config.provider})
+        from .tool_orchestration import ExternalCalls
+        external_calls = ExternalCalls(getattr(self, 'external_limits', None))
         signatures = Counter()
         loop_detected = False
         previous_sources = None
@@ -336,6 +338,9 @@ class Agent:
                 if self.apply_steering():
                     continue
                 return 'completed' if finish != 'length' else 'output_limit'
+            external_calls.begin_batch()
+            if any(getattr(self.registry.tools.get(call['function']['name']), 'deferred', False) for call in calls):
+                self.emit('status', f'External calls: {external_calls.total}/{external_calls.limits.per_turn} attempted this turn; at most {external_calls.limits.per_batch} per batch.')
             self.session.pending = {'reply': reply, 'results': {}}
             self.save()  # Durable intent BEFORE any side effect.
             try:
@@ -343,6 +348,8 @@ class Agent:
                     self.emit('tool_request', call)
                     self.emit('tool', call['function']['name'])
                     executed = False
+                    spec = self.registry.tools.get(call['function']['name'])
+                    external = bool(spec and getattr(spec, 'deferred', False))
                     if self.queued_boundary():
                         result = '{"status":"skipped","reason":"New user steering arrived; this action was not started. Reconsider after reading it."}'
                     elif self.restart_requested:
@@ -350,8 +357,8 @@ class Agent:
                     else:
                         self._phase = 'tool'
                         manager = getattr(self, 'instruction_manager', None)
-                        deferred = None
-                        if manager:
+                        deferred = external_calls.before(external)
+                        if manager and deferred is None:
                             spec = self.registry.tools.get(call['function']['name'])
                             try:
                                 deferred = manager.before_tool(call, spec.effect if spec else 'read')
@@ -359,6 +366,7 @@ class Agent:
                                 deferred = json.dumps({'error': str(error), 'action_executed': False})
                         executed = deferred is None
                         result = self.redactor.text(deferred if deferred is not None else self.registry.execute(call))
+                    external_calls.observe(external and executed, result)
                     signature_result = result
                     if getattr(self, 'artifact_store', None):
                         result = self.artifact_store.offload(call['function']['name'], result)
@@ -384,6 +392,9 @@ class Agent:
                 self.apply_steering()
             except KeyboardInterrupt:
                 raise
+            if external_calls.exhausted:
+                self.emit('status', 'External tool turn limit reached. Known results and skipped calls are saved; inspect them before explicitly continuing.')
+                return 'tool_limit'
             if self.restart_requested:
                 return 'restart'
             if loop_detected:
