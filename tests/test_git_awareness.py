@@ -173,3 +173,18 @@ class GitAwarenessTests(unittest.TestCase):
         self.assertNotEqual(agent.session.id, old)
         self.assertEqual(self.ws.read_versions, {})
         self.assertEqual(self.ws.read_ranges, {})
+
+    def test_lifecycle_attribution_tracks_deleted_source_and_created_destination(self):
+        self.inspector.capture('session_start')
+        sha = self.ws.inspect_file('app.py')['sha256']
+        self.ws.move_file('app.py', 'renamed.py', sha)
+        rows = {row['path']: row for row in self.inspector.status()['changes']}
+        self.assertTrue(rows['app.py']['matches_session_file_tool_output'])
+        self.assertTrue(rows['renamed.py']['matches_session_file_tool_output'])
+        (self.root / 'app.py').write_text('value = 1\n')
+        # A recreated original is not a deletion output, even if its bytes equal
+        # the checkpoint before-image. Force dirtiness so status includes it.
+        self.git('add', 'app.py')
+        self.git('rm', '--cached', 'app.py')
+        rows = {row['path']: row for row in self.inspector.status()['changes']}
+        self.assertFalse(rows['app.py']['matches_session_file_tool_output'])

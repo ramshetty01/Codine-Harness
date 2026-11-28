@@ -219,7 +219,13 @@ class GitInspector:
                 consumed += size
                 row = history.load(path.stem)
                 if row.get('session_id') == session.id and not row.get('undone'):
-                    checkpoints.setdefault(row['path'], row['after_hash'])
+                    if row.get('kind') == 'lifecycle':
+                        if row['phase'] == 'completed':
+                            checkpoints.setdefault(row['path'], 'missing')
+                        if row['operation'] == 'move' and row['phase'] in ('copied', 'completed'):
+                            checkpoints.setdefault(row['destination'], row['after_hash'])
+                    else:
+                        checkpoints.setdefault(row['path'], row['after_hash'])
         except (OSError, ValueError):
             checkpoints = {}
         for i, row in enumerate(entries):
