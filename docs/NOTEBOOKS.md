@@ -33,3 +33,20 @@ permissions; those tools retain their own read/inspection requirements. A notebo
 edit clears notebook coverage, so subsequent cell edits must read the new file
 version. Planning mode permits reads only. Private paths, links and configured
 read/write policy restrictions are enforced through the existing workspace.
+
+
+Validation checks the supported structure, not the complete Jupyter JSON schema.
+Root metadata and a nonnegative integer `nbformat_minor` are required; each cell
+must have metadata and text/list-of-text source. Code cells require a list of
+outputs and a null or nonnegative integer execution count. Format 4.5 and later
+requires valid, unique cell IDs; older minor revisions may omit them. Extra
+metadata/output payloads remain opaque and are not interpreted as code. The
+underlying [Jupyter schema](https://github.com/jupyter/nbformat/blob/main/nbformat/v4/nbformat.v4.schema.json)
+defines further constraints this lightweight reader does not certify.
+
+In addition to file/cell limits, documents are bounded to 64 container levels and
+100,000 JSON values. Nonfinite numeric values (including float overflow) and
+unpaired Unicode surrogates are rejected before rendering or editing. Malformed
+notebooks fail rather than having missing sources or identifiers silently
+invented. No notebook kernel or live model is used in the fake-agent round-trip,
+policy-denial, paging, approval-race, and grouped-rewind tests.

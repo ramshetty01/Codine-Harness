@@ -103,3 +103,87 @@ class NotebookTests(unittest.TestCase):
         result = self.nb.read('analysis.ipynb', cell=0)
         self.nb.edit('analysis.ipynb', 0, '# Changed\nbody', result['sha256'])
         self.assertEqual(json.loads(self.path.read_text())['cells'][0]['source'], ['# Changed\n', 'body'])
+
+    def test_basic_schema_depth_and_json_value_limits(self):
+        cases=[]
+        for key,value in (('nbformat_minor',True),('nbformat_minor',-1),('metadata',None)):
+            data=copy.deepcopy(self.document);data[key]=value;cases.append(data)
+        for key in ('nbformat_minor','metadata'):
+            data=copy.deepcopy(self.document);del data[key];cases.append(data)
+        for key in ('source','metadata','execution_count','outputs','id'):
+            data=copy.deepcopy(self.document);del data['cells'][1][key];cases.append(data)
+        for key,value in (('source','\ud800'),('outputs',{}),('execution_count',True),('execution_count',-1),('id','bad id')):
+            data=copy.deepcopy(self.document);data['cells'][1][key]=value;cases.append(data)
+        data=copy.deepcopy(self.document);data['cells'][1]['id']='intro';cases.append(data)
+        nested={}
+        for _ in range(65): nested={'nested':nested}
+        data=copy.deepcopy(self.document);data['metadata']=nested;cases.append(data)
+        data=copy.deepcopy(self.document);data['metadata']={'values':[0]*100001};cases.append(data)
+        for data in cases:
+            with self.subTest(keys=list(data)):
+                self.path.write_text(json.dumps(data))
+                before=self.path.read_bytes()
+                with self.assertRaises(ValueError):self.nb.read('analysis.ipynb')
+                self.assertEqual(self.path.read_bytes(),before)
+        self.path.write_text(json.dumps(self.document).replace('"custom": true','"custom": 1e999'))
+        with self.assertRaisesRegex(ValueError,'number'):self.nb.read('analysis.ipynb')
+        legacy=copy.deepcopy(self.document);legacy['nbformat_minor']=4
+        for cell in legacy['cells']:del cell['id']
+        self.path.write_text(json.dumps(legacy))
+        self.assertEqual(self.nb.read('analysis.ipynb')['total_cells'],2)
+
+    def test_denied_read_and_write_policies_never_reach_approval_or_mutation(self):
+        from unittest.mock import patch
+        from codine.command_policy import CommandPolicy, FileRule
+        def policy(operation):
+            self.ws.command_policy=CommandPolicy(self.root/'policy.json',file_rules=(
+                FileRule(id='deny',action='deny',operation=operation,project=str(self.ws.root),match='exact',path='analysis.ipynb'),))
+        policy('read')
+        with patch.object(self.ws,'_read',side_effect=AssertionError('denied disk read')):
+            with self.assertRaisesRegex(ValueError,'policy'):self.nb.read('analysis.ipynb')
+        policy('write')
+        result=self.nb.read('analysis.ipynb',cell=1)
+        before=self.path.read_bytes()
+        with self.assertRaisesRegex(ValueError,'policy'):
+            self.nb.edit('analysis.ipynb',1,'print(2)',result['sha256'])
+        self.ws.approve.assert_not_called()
+        self.assertEqual(self.path.read_bytes(),before)
+        self.assertEqual(self.nb.coverage[self.nb.key('analysis.ipynb',1,result['sha256'])],[(0,9)])
+
+    def test_fake_agent_reads_edits_receives_result_and_rewinds_group(self):
+        from codine.agent import Agent
+        from codine.config import Config, Redactor
+        from codine.sessions import Session, SessionStore, validate_messages
+        from codine.changesets import rewind
+        requests=[]
+        def call(name,args):
+            return {'role':'assistant','content':None,'tool_calls':[{'id':'call'+str(len(requests)),
+                'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+        class FakeProvider:
+            def complete(_,messages,schemas,model,emit):
+                requests.append(copy.deepcopy(messages))
+                if len(requests)==1:
+                    return call('read_notebook',{'path':'analysis.ipynb','cell':1}),'tool_calls',None
+                result=json.loads(messages[-1]['content'])
+                if len(requests)==2:
+                    self.assertEqual(result['source'],'print(1)\n')
+                    return call('edit_notebook_cell',{'path':'analysis.ipynb','cell':1,'new_source':'print(3)\n','expected_sha256':result['sha256']}),'tool_calls',None
+                self.assertEqual(result['status'],'updated')
+                self.assertFalse(result['executed'])
+                return {'role':'assistant','content':'Edited; not executed.'},'stop',None
+        before=self.path.read_bytes()
+        store=SessionStore(self.root);self.addCleanup(store.close)
+        session=Session.create(self.root,'fake','system')
+        self.ws.change_session_id=session.id
+        registry=build_registry(self.ws,lambda:None)
+        agent=Agent(Config(self.root),FakeProvider(),registry,store,session,Mock(),Redactor())
+        self.assertEqual(agent.run_turn('Read and edit the code cell.'),'completed')
+        self.assertEqual(len(requests),3)
+        validate_messages(store.load(session.id).messages)
+        edited=json.loads(self.path.read_text())
+        self.assertEqual(edited['cells'][1]['source'],'print(3)\n')
+        self.assertEqual(edited['cells'][1]['outputs'],[])
+        self.assertEqual(edited['cells'][0],self.document['cells'][0])
+        self.ws.approve.assert_called_once()
+        rewind(self.ws,self.ws.change_group_id)
+        self.assertEqual(self.path.read_bytes(),before)

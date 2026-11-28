@@ -1,5 +1,7 @@
 """Bounded nbformat-4 cell inspection/editing; never starts a notebook kernel."""
 import json
+import math
+import re
 from .workspace import fingerprint, MAX_FILE_BYTES
 from .registry import ToolSpec
 
@@ -14,12 +16,59 @@ def unique(pairs):
 
 
 def source(cell):
-    value = cell.get('source', '')
+    value = cell.get('source')
     if isinstance(value, list) and all(isinstance(line, str) for line in value):
         value = ''.join(value)
     if not isinstance(value, str) or '\0' in value:
         raise ValueError('Invalid notebook cell source.')
     return value
+
+
+def validate_structure(document):
+    # File bytes bound parsing; bounded iterative traversal also limits metadata
+    # complexity before any recursive JSON serialization or checkpoint work.
+    stack = [iter((document,))]
+    nodes = 0
+    while stack:
+        try:
+            value = next(stack[-1])
+        except StopIteration:
+            stack.pop()
+            continue
+        nodes += 1
+        if nodes > 100000:
+            raise ValueError('Notebook exceeds 100,000 JSON values.')
+        if isinstance(value, dict) and any(re.search(r'[\ud800-\udfff]', key) for key in value):
+            raise ValueError('Notebook contains invalid Unicode text.')
+        if isinstance(value, str) and re.search(r'[\ud800-\udfff]', value):
+            raise ValueError('Notebook contains invalid Unicode text.')
+        if isinstance(value, (dict, list)):
+            if len(stack) > 64:
+                raise ValueError('Notebook exceeds 64 container levels.')
+            stack.append(iter(value.values() if isinstance(value, dict) else value))
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise ValueError('Notebook contains an unrepresentable JSON number.')
+    if (not isinstance(document, dict) or type(document.get('nbformat')) is not int or
+            document['nbformat'] != 4 or type(document.get('nbformat_minor')) is not int or
+            document['nbformat_minor'] < 0 or not isinstance(document.get('cells'), list) or
+            len(document['cells']) > 1000 or not isinstance(document.get('metadata'), dict)):
+        raise ValueError('Expected nbformat 4, a nonnegative minor version, metadata and at most 1000 cells.')
+    ids = set()
+    for cell in document['cells']:
+        if (not isinstance(cell, dict) or cell.get('cell_type') not in ('code', 'markdown', 'raw') or
+                not isinstance(cell.get('metadata'), dict)):
+            raise ValueError('Invalid notebook cell.')
+        source(cell)
+        if document['nbformat_minor'] >= 5 or 'id' in cell:
+            ident = cell.get('id')
+            if not isinstance(ident, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', ident) or ident in ids:
+                raise ValueError('Notebook cell IDs must be valid and unique (required for nbformat 4.5+).')
+            ids.add(ident)
+        if cell['cell_type'] == 'code':
+            count = cell.get('execution_count')
+            if ('execution_count' not in cell or not isinstance(cell.get('outputs'), list) or
+                    (count is not None and (type(count) is not int or count < 0))):
+                raise ValueError('Code cells require an outputs list and null/nonnegative execution_count.')
 
 
 class Notebooks:
@@ -37,15 +86,7 @@ class Notebooks:
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid JSON number.')))
         except (RecursionError, json.JSONDecodeError) as error:
             raise ValueError('Invalid or excessively nested notebook JSON.') from error
-        if (not isinstance(document, dict) or type(document.get('nbformat')) is not int or
-                document['nbformat'] != 4 or not isinstance(document.get('cells'), list) or
-                len(document['cells']) > 1000 or not isinstance(document.get('metadata', {}), dict)):
-            raise ValueError('Expected nbformat 4 with at most 1000 cells.')
-        for cell in document['cells']:
-            if (not isinstance(cell, dict) or cell.get('cell_type') not in ('code', 'markdown', 'raw') or
-                    not isinstance(cell.get('metadata', {}), dict)):
-                raise ValueError('Invalid notebook cell.')
-            source(cell)
+        validate_structure(document)
         normalized = target.relative_to(self.workspace.root).as_posix()
         return target, normalized, raw, text, document
 
