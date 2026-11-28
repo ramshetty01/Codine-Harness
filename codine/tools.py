@@ -293,6 +293,8 @@ def build_registry(workspace, request_restart):
     add('cancel_job', 'Request cancellation and cleanup of a job in this process; inspect status to confirm completion.',
         lambda **args: cancel_job(workspace, **args), {'job_id': string}, ('job_id',), effect='cancel')
     add('request_restart', 'Ask permission to save and restart Codine at a completed tool boundary, validating its code first. Reloads edited harness code and tools; keeps session. Do not call for ordinary project edits.', request_restart, {}, effect="restart")
+    from .notebooks import register_notebook_tools
+    register_notebook_tools(registry, workspace)
     from .project_checks import register_check_tools
     register_check_tools(registry, workspace)
     return registry
